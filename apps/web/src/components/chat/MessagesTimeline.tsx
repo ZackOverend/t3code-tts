@@ -70,6 +70,7 @@ import {
   type RememberedTimelinePosition,
   rememberTimelinePosition,
 } from "./timelineScrollAnchoring";
+import { useTtsAutoplay } from "./ttsAutoplay";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
@@ -694,6 +695,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     (approval) =>
       isVisiblePendingApproval(approval) && !matchedApprovalRequestIds.has(approval.requestId),
   );
+  useTtsAutoplay(rows, listIdentityKey);
   // Run status/timestamps change per stream event; keep them out of shared row context.
   const runs = useStableHandoffRuns(runsProp);
   const minimapItems = deriveTimelineMinimapItems(rows);
