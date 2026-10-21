@@ -14,6 +14,7 @@ import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
 import { useAssistantMessageText, useProject, useThreadShell } from "../../state/entities";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { MessageSpeakButton } from "./MessageSpeakButton";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -221,7 +222,12 @@ function AssistantCopyButton({
     return null;
   }
 
-  return <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />;
+  return (
+    <>
+      <MessageCopyButton text={assistantCopyState.text ?? ""} variant="ghost" />
+      <MessageSpeakButton text={assistantCopyState.text ?? ""} />
+    </>
+  );
 }
 
 export function ProposedPlanTimelineRow({
