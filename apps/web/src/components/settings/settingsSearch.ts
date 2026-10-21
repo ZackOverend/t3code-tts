@@ -22,6 +22,7 @@ export type SettingsPath =
   | "/settings/appearance"
   | "/settings/chat"
   | "/settings/diffs"
+  | "/settings/audio"
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
@@ -92,6 +93,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
+  "/settings/audio": "Audio",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -122,6 +124,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/appearance",
       "/settings/chat",
       "/settings/diffs",
+      "/settings/audio",
       "/settings/keybindings",
       "/settings/snap-shot",
     ],
@@ -758,6 +761,36 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer meter usage tokens circle old"],
   },
   {
+    id: "tts-engine",
+    title: "Speech engine",
+    to: "/settings/audio",
+    searchTerms: ["text to speech tts audio kokoro model daemon output device speaker"],
+  },
+  {
+    id: "tts-autoplay",
+    title: "Read responses aloud",
+    to: "/settings/audio",
+    searchTerms: ["text to speech tts audio autoplay automatically speak"],
+  },
+  {
+    id: "tts-voice",
+    title: "Voice",
+    to: "/settings/audio",
+    searchTerms: ["text to speech tts audio kokoro speaker accent language"],
+  },
+  {
+    id: "tts-speed",
+    title: "Speech speed",
+    to: "/settings/audio",
+    searchTerms: ["text to speech tts audio rate faster slower"],
+  },
+  {
+    id: "tts-preview",
+    title: "Preview and stop",
+    to: "/settings/audio",
+    searchTerms: ["text to speech tts audio sample test voice stop playback"],
+  },
+  {
     id: "keybindings",
     title: "Keybindings",
     to: "/settings/keybindings",
@@ -1198,6 +1231,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/appearance": null,
   "/settings/chat": null,
   "/settings/diffs": null,
+  "/settings/audio": null,
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
   "/settings/providers": null,

@@ -49,7 +49,7 @@ export function createAutoplayTracker() {
   };
 }
 
-function notifyDaemonUnavailable() {
+export function notifyDaemonUnavailable() {
   toastManager.add({ type: "error", title: "TTS daemon not running" });
 }
 
@@ -74,7 +74,7 @@ export function useTtsAutoplay(rows: ReadonlyArray<MessagesTimelineRow>, threadK
         showCopyButton: row.showAssistantCopyButton,
         streaming: row.assistantCopyStreaming,
       });
-      if (text !== null && enabled) speakMessage(text, notifyDaemonUnavailable);
+      if (text !== null && enabled) void speakMessage(text, notifyDaemonUnavailable);
     }
   }, [rows, threadKey, enabled]);
 }

@@ -5,7 +5,14 @@ import { ANCHORED_COPY_TOAST_TIMEOUT_MS } from "../ui/anchoredCopyToast";
 import { anchoredToastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { getPlayback, hashText, sendToDaemon, subscribe, type Playback } from "./messageSpeech";
+import {
+  getPlayback,
+  hashText,
+  sendToDaemon,
+  speakMessage,
+  subscribe,
+  type Playback,
+} from "./messageSpeech";
 import { useTtsAutoplaySetting } from "./ttsAutoplay";
 
 export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { text: string }) {
@@ -25,13 +32,13 @@ export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { t
     });
   };
   const send = (path: string, body: object, next: Playback) =>
-    sendToDaemon(path, body, next, onError);
+    void sendToDaemon(path, body, next, onError);
 
   const label = state === "playing" ? "Pause" : state === "paused" ? "Resume" : "Read aloud";
   const onClick = () => {
     if (state === "playing") send("/pause", {}, { id, state: "paused" });
     else if (state === "paused") send("/resume", {}, { id, state: "playing" });
-    else send("/speak", { text, md: true, id }, { id, state: "playing" });
+    else void speakMessage(text, onError);
   };
   const Icon = state === "playing" ? PauseIcon : state === "paused" ? PlayIcon : Volume2Icon;
 
