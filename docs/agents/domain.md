@@ -4,6 +4,13 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
+This is a fork of upstream T3 Code. Upstream's docs come first:
+
+- **`docs/internals/glossary.md`**: upstream's shared vocabulary. Use its terms.
+- **`docs/internals/`**: upstream's architectural decisions and constraints. Read the pages that touch the area you're working in.
+
+Then the fork's own docs, which hold only fork-only terms and decisions:
+
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists: it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
@@ -46,6 +53,8 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 
 ## Flag ADR conflicts
 
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
+Never edit upstream's glossary or `docs/internals/` for fork-only material; it causes rebase conflicts. Fork-only terms go in `CONTEXT.md`, fork-only decisions in `docs/adr/`.
+
+If your output contradicts an existing ADR or an upstream `docs/internals/` page, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_

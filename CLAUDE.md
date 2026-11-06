@@ -12,4 +12,4 @@ Default labels (needs-triage, needs-info, ready-for-agent, ready-for-human, wont
 
 ### Domain docs
 
-Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: upstream glossary `docs/internals/glossary.md` first; fork-only terms in root `CONTEXT.md`, decisions in `docs/adr/`. See `docs/agents/domain.md`.
