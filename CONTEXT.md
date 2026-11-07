@@ -8,7 +8,7 @@ Fork-only language; upstream terms remain in `docs/internals/glossary.md`.
 The local process on `127.0.0.1:7788` that speaks replies (Kokoro) and transcribes speech (Canary). It lives outside this repo.
 
 **Voice mode**:
-A desktop-composer toggle that listens to the microphone and appends what is said to the draft of the thread it was turned on in. Per window and thread, never persisted, off at launch.
+A desktop toggle that listens to the microphone and appends what is said to the draft of whichever thread composer is showing. One per window, stays on across thread switches and pages, and is remembered across restarts (on at launch means the microphone opens at launch). A phrase that ends with no composer showing is dropped. Ending a phrase with "send it" sends the draft; "scratch that" clears it.
 _Avoid_: voice input (upstream's mobile dictation, which never runs continuously).
 
 **Speech segment**:

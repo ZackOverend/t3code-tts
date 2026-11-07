@@ -3499,9 +3499,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   >
                     {composerControls}
                   </div>
-                  {isElectron ? (
+                  {isElectron && !backgroundThread ? (
                     <VoiceModeToggle
-                      key={composerDraftTargetKey}
                       ownerKey={composerDraftTargetKey}
                       readPrompt={() => promptRef.current}
                       commitPrompt={(text) =>
@@ -3509,6 +3508,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           focusEditorAfterReplace: false,
                         })
                       }
+                      submit={submitCitationAndSendStable}
                     />
                   ) : null}
                   <ComposerFooterPrimaryActions

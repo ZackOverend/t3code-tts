@@ -3,6 +3,8 @@ import {
   type VoiceDraftSnapshot,
 } from "@t3tools/client-runtime/voice-input";
 
+import { parseVoicePhrase } from "./voiceCommands";
+
 export type VoiceModePhase = "off" | "starting" | "listening" | "transcribing" | "error";
 
 export interface VoiceModeState {
@@ -43,6 +45,7 @@ const ERROR_MESSAGES: Record<VoiceModeErrorCode, string> = {
 
 const UNEXPECTED_ERROR_MESSAGE = "Voice mode stopped unexpectedly.";
 const STALE_DRAFT_NOTICE = "The draft changed while transcribing, so that phrase was not added.";
+const NO_COMPOSER_NOTICE = "No message box was showing, so that phrase was not added.";
 const DRAFT_LOCALE = "en-US";
 
 function describeError(error: unknown): string {
@@ -69,11 +72,26 @@ export interface VoiceModeTranscriber {
   transcribe(audio: Float32Array, signal: AbortSignal): Promise<string>;
 }
 
+/** The composer currently showing; speech goes to whichever one is registered last. */
+export interface ComposerTarget {
+  /** Identifies the draft; a transcript captured for one key is never written under another. */
+  readonly key: string;
+  readonly readDraft: () => string;
+  /** Replaces the whole draft. Returns false when the composer refused the edit. */
+  readonly commitDraft: (text: string) => boolean;
+  /** The composer's own send, as if the Send button was pressed. */
+  readonly submit: () => void;
+}
+
+export interface VoiceModePersistence {
+  read(): boolean;
+  write(on: boolean): void;
+}
+
 export interface VoiceModeDependencies {
   readonly createSpeechSource: (handlers: SpeechSourceHandlers) => SpeechSource;
   readonly transcriber: VoiceModeTranscriber;
-  readonly readDraft: () => { readonly ownerKey: string; readonly text: string } | null;
-  readonly commitDraft: (text: string) => void;
+  readonly persistence: VoiceModePersistence;
 }
 
 const OFF: VoiceModeState = { phase: "off", error: null, notice: null };
@@ -87,8 +105,22 @@ export class VoiceModeController {
   private source: SpeechSource | null = null;
   private abort: AbortController | null = null;
   private queue: Float32Array[] = [];
+  private targets: ComposerTarget[] = [];
 
-  constructor(private readonly dependencies: VoiceModeDependencies) {}
+  constructor(private readonly dependencies: VoiceModeDependencies) {
+    if (dependencies.persistence.read()) void this.turnOn();
+  }
+
+  registerTarget(target: ComposerTarget): () => void {
+    this.targets.push(target);
+    return () => {
+      this.targets = this.targets.filter((candidate) => candidate !== target);
+    };
+  }
+
+  private get target(): ComposerTarget | null {
+    return this.targets.at(-1) ?? null;
+  }
 
   get state(): VoiceModeState {
     return this.current;
@@ -99,13 +131,15 @@ export class VoiceModeController {
     return () => this.listeners.delete(listener);
   };
 
+  // A stopped session (error) can only be switched off from the toggle, which also forgets the choice.
   toggle(): void {
-    if (this.current.phase === "off" || this.current.phase === "error") void this.turnOn();
+    if (this.current.phase === "off") void this.turnOn();
     else this.turnOff();
   }
 
   async turnOn(): Promise<void> {
     if (this.current.phase !== "off" && this.current.phase !== "error") return;
+    this.dependencies.persistence.write(true);
     const run = ++this.runId;
     const abort = new AbortController();
     this.abort = abort;
@@ -133,6 +167,7 @@ export class VoiceModeController {
 
   turnOff(): void {
     if (this.current.phase === "off") return;
+    this.dependencies.persistence.write(false);
     this.halt();
     this.setState(OFF);
   }
@@ -179,31 +214,47 @@ export class VoiceModeController {
   }
 
   private async transcribeAndAppend(run: number, audio: Float32Array): Promise<void> {
-    const before = this.dependencies.readDraft();
+    const before = this.target;
     const abort = this.abort;
-    if (!before || !abort) return;
-    const captured: VoiceDraftSnapshot = {
-      ownerKey: before.ownerKey,
-      text: before.text,
-      selection: { start: before.text.length, end: before.text.length },
+    if (!abort) return;
+    const capturedText = before?.readDraft() ?? "";
+    const captured: VoiceDraftSnapshot | null = before && {
+      ownerKey: before.key,
+      text: capturedText,
+      selection: { start: capturedText.length, end: capturedText.length },
       // The composer draft has no revision counter; the stale guard compares its text.
       revision: 0,
     };
-    const text = await this.dependencies.transcriber.transcribe(audio, abort.signal);
-    if (run !== this.runId) return;
-    const now = this.dependencies.readDraft();
+    const transcript = await this.dependencies.transcriber.transcribe(audio, abort.signal);
+    if (run !== this.runId || transcript.trim() === "") return;
+    const target = this.target;
+    if (!captured || !target) {
+      this.setState({ ...this.current, notice: NO_COMPOSER_NOTICE });
+      return;
+    }
+    const phrase = parseVoicePhrase(transcript);
+    const draft = target.readDraft();
     const result = resolveTranscriptCommit(
       captured,
-      now && { ...captured, ownerKey: now.ownerKey, text: now.text },
-      text,
+      { ...captured, ownerKey: target.key, text: draft },
+      phrase.text,
       DRAFT_LOCALE,
     );
-    if (result.kind === "commit") {
-      this.dependencies.commitDraft(result.text);
-      this.setState({ ...this.current, notice: null });
-    } else if (result.kind === "stale") {
+    if (result.kind === "stale") {
       this.setState({ ...this.current, notice: STALE_DRAFT_NOTICE });
+      return;
     }
+    let finalText = draft;
+    if (result.kind === "commit") {
+      if (!target.commitDraft(result.text)) {
+        this.setState({ ...this.current, notice: STALE_DRAFT_NOTICE });
+        return;
+      }
+      finalText = result.text;
+    }
+    this.setState({ ...this.current, notice: null });
+    if (phrase.command === "send" && finalText.trim() !== "") target.submit();
+    else if (phrase.command === "clear") target.commitDraft("");
   }
 
   private setState(next: VoiceModeState): void {

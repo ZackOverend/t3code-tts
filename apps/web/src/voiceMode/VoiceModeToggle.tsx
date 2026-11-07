@@ -1,13 +1,11 @@
 import { LoaderCircleIcon, MicIcon, MicOffIcon } from "lucide-react";
-import { memo, useEffect, useState, useSyncExternalStore } from "react";
+import { memo, useEffect, useSyncExternalStore } from "react";
 
 import { useStableCallback } from "../hooks/useStableCallback";
-import { toastManager } from "../components/ui/toast";
 import { Toggle } from "../components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
-import { daemonTranscriber } from "./daemonTranscriber";
-import { createVadSpeechSource } from "./speechSource";
-import { VoiceModeController, type VoiceModeState } from "./voiceModeController";
+import type { VoiceModeState } from "./voiceModeController";
+import { getVoiceModeController } from "./voiceModeSession";
 
 function describe(state: VoiceModeState): string {
   switch (state.phase) {
@@ -20,45 +18,27 @@ function describe(state: VoiceModeState): string {
     case "transcribing":
       return "Transcribing. Click to stop voice mode";
     case "error":
-      return "Voice mode stopped. Click to try again";
+      return "Voice mode stopped. Click to turn it off";
   }
 }
 
 export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
   ownerKey: string;
   readPrompt: () => string;
-  commitPrompt: (text: string) => void;
+  commitPrompt: (text: string) => boolean;
+  submit: () => void;
 }) {
-  const readDraft = useStableCallback(() => ({
-    ownerKey: props.ownerKey,
-    text: props.readPrompt(),
-  }));
+  const controller = getVoiceModeController();
+  const readDraft = useStableCallback(() => props.readPrompt());
   const commitDraft = useStableCallback((text: string) => props.commitPrompt(text));
-  const [controller] = useState(
-    () =>
-      new VoiceModeController({
-        createSpeechSource: createVadSpeechSource,
-        transcriber: daemonTranscriber,
-        readDraft,
-        commitDraft,
-      }),
-  );
+  const submit = useStableCallback(() => props.submit());
   const state = useSyncExternalStore(controller.subscribe, () => controller.state);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Nothing in render can close a live microphone. The composer keys this component by thread, so unmounting is how voice mode ends when the thread changes.
-  useEffect(() => () => controller.turnOff(), [controller]);
-
-  const message = state.error ?? state.notice;
-  const isError = state.error !== null;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Surfaces a controller-initiated failure or dropped phrase as a toast; it has no other trigger to hang off.
-  useEffect(() => {
-    if (!message) return;
-    toastManager.add({
-      type: isError ? "error" : "warning",
-      title: "Voice mode",
-      description: message,
-    });
-  }, [message, isError]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Registers this composer as the place speech goes while it is showing; the controller outlives it, so unmounting must unregister.
+  useEffect(
+    () => controller.registerTarget({ key: props.ownerKey, readDraft, commitDraft, submit }),
+    [controller, props.ownerKey, readDraft, commitDraft, submit],
+  );
 
   const Icon =
     state.phase === "transcribing" || state.phase === "starting"
