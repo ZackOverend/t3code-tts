@@ -4,6 +4,16 @@ Fork-only language; upstream terms remain in `docs/internals/glossary.md`.
 
 ## Language
 
+**Speech daemon**:
+The local process on `127.0.0.1:7788` that speaks replies (Kokoro) and transcribes speech (Canary). It lives outside this repo.
+
+**Voice mode**:
+A desktop-composer toggle that listens to the microphone and appends what is said to the draft of the thread it was turned on in. Per window and thread, never persisted, off at launch.
+_Avoid_: voice input (upstream's mobile dictation, which never runs continuously).
+
+**Speech segment**:
+One utterance cut from the microphone stream by the voice activity detector after a pause. The unit that is transcribed and appended.
+
 **Fork update**: A build of this fork following a stable upstream release.
 
 **Staged build**: A completed fork update waiting to replace the installed app.

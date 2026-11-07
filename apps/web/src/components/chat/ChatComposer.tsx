@@ -9,6 +9,8 @@ import {
 } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { isElectron } from "../../env";
+import { VoiceModeToggle } from "../../voiceMode/VoiceModeToggle";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { importPastedComposerText, readPastedComposerContext } from "../composerInlineTokenPaste";
 import {
@@ -3497,6 +3499,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   >
                     {composerControls}
                   </div>
+                  {isElectron ? (
+                    <VoiceModeToggle
+                      key={composerDraftTargetKey}
+                      ownerKey={composerDraftTargetKey}
+                      readPrompt={() => promptRef.current}
+                      commitPrompt={(text) =>
+                        applyPromptReplacementStable(0, promptRef.current.length, text, {
+                          focusEditorAfterReplace: false,
+                        })
+                      }
+                    />
+                  ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
