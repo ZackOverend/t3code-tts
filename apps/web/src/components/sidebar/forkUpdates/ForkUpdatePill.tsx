@@ -17,27 +17,19 @@ export function ForkUpdatePill({ fallback }: { readonly fallback: ReactNode }) {
   const install = async () => {
     if (!ready || pending || !window.desktopBridge) return;
     setPending(true);
-    try {
-      const result = await window.desktopBridge.installUpdate();
-      if (!result.completed) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not install update",
-            description: result.state.message ?? "Try again.",
-          }),
-        );
-      }
-    } catch {
+    const failure = await window.desktopBridge.installUpdate().then(
+      (result) => (result.completed ? null : (result.state.message ?? "Try again.")),
+      () => "Your installed app is unchanged. Try again.",
+    );
+    setPending(false);
+    if (failure) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
           title: "Could not install update",
-          description: "Your installed app is unchanged. Try again.",
+          description: failure,
         }),
       );
-    } finally {
-      setPending(false);
     }
   };
   return (

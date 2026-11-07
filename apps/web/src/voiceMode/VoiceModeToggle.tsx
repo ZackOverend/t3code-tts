@@ -45,12 +45,12 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
   );
   const state = useSyncExternalStore(controller.subscribe, () => controller.state);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Nothing in render can close a live microphone. The composer keys this component by thread, so unmounting is how voice mode ends when the thread changes.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Nothing in render can close a live microphone. The composer keys this component by thread, so unmounting is how voice mode ends when the thread changes.
   useEffect(() => () => controller.turnOff(), [controller]);
 
   const message = state.error ?? state.notice;
   const isError = state.error !== null;
-  // oxlint-disable-next-line t3code/react-effect-budget -- Surfaces a controller-initiated failure or dropped phrase as a toast; it has no other trigger to hang off.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Surfaces a controller-initiated failure or dropped phrase as a toast; it has no other trigger to hang off.
   useEffect(() => {
     if (!message) return;
     toastManager.add({

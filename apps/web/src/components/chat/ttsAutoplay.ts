@@ -60,7 +60,7 @@ export function useTtsAutoplay(rows: ReadonlyArray<MessagesTimelineRow>, threadK
     tracker: ReturnType<typeof createAutoplayTracker>;
   }>(null);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- speaks in response to timeline rows streaming in, which only the effect sees
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- speaks in response to timeline rows streaming in, which only the effect sees
   useEffect(() => {
     if (trackerRef.current?.threadKey !== threadKey) {
       trackerRef.current = { threadKey, tracker: createAutoplayTracker() };
