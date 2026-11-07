@@ -68,7 +68,7 @@ export function AudioSettings() {
       <SettingsSection id="tts" title="Text to speech">
         <SettingsRow
           {...searchableSetting("tts-engine")}
-          description={`${TTS_ENGINE.name} (${TTS_ENGINE.model}) runs locally on this device through the speech daemon. The model is fixed, and audio plays on your system's current output device.`}
+          description={`${TTS_ENGINE.name} (${TTS_ENGINE.model}) runs locally on this device through the speech daemon and plays in this app on your current output device. The model is fixed.`}
           status={
             reachable === false
               ? `Can't reach the daemon at ${TTS_DAEMON_URL}. Start it, then try again.`
@@ -170,7 +170,7 @@ export function AudioSettings() {
                 size="xs"
                 variant="outline"
                 disabled={playback.state === "idle"}
-                onClick={() => void stopSpeech(notifyDaemonUnavailable)}
+                onClick={stopSpeech}
               >
                 <SquareIcon className="size-3" />
                 Stop playback

@@ -8,10 +8,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   getPlayback,
   hashText,
-  sendToDaemon,
+  pauseSpeech,
+  resumeSpeech,
   speakMessage,
   subscribe,
-  type Playback,
 } from "./messageSpeech";
 import { useTtsAutoplaySetting } from "./ttsAutoplay";
 
@@ -31,13 +31,11 @@ export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { t
       title: "TTS daemon not running",
     });
   };
-  const send = (path: string, body: object, next: Playback) =>
-    void sendToDaemon(path, body, next, onError);
 
   const label = state === "playing" ? "Pause" : state === "paused" ? "Resume" : "Read aloud";
   const onClick = () => {
-    if (state === "playing") send("/pause", {}, { id, state: "paused" });
-    else if (state === "paused") send("/resume", {}, { id, state: "playing" });
+    if (state === "playing") pauseSpeech();
+    else if (state === "paused") resumeSpeech();
     else void speakMessage(text, onError);
   };
   const Icon = state === "playing" ? PauseIcon : state === "paused" ? PlayIcon : Volume2Icon;
