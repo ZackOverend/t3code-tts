@@ -73,7 +73,7 @@ export function hashText(text: string) {
   return (hash >>> 0).toString(36);
 }
 
-export function buildSynthesizeBody(text: string, { voice, speed }: TtsVoiceSettings, md: boolean) {
+function buildSynthesizeBody(text: string, { voice, speed }: TtsVoiceSettings, md: boolean) {
   return { text, ...(md ? { md: true } : {}), voice, speed };
 }
 
