@@ -11,6 +11,7 @@ import { toastManager } from "../components/ui/toast";
 import { getLocalStorageItem, setLocalStorageItem } from "../hooks/useLocalStorage";
 import { daemonTranscriber } from "./daemonTranscriber";
 import { createVadSpeechSource } from "./speechSource";
+import { readVoiceSettings } from "./voiceSettings";
 import { readVoicePhrases } from "./voicePhrases";
 import { VoiceModeController, type VoiceModePersistence } from "./voiceModeController";
 
@@ -43,6 +44,7 @@ export function getVoiceModeController(): VoiceModeController {
     transcriber: daemonTranscriber,
     persistence: localStorageVoiceModePersistence,
     phrases: readVoicePhrases,
+    settings: readVoiceSettings,
     isPlaybackActive: isSpeechActive,
     getPlaybackText: getSpeechText,
     stopPlayback: stopSpeech,

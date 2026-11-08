@@ -1,3 +1,12 @@
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { useVoiceSettings } from "./voiceSettings";
+import { TranscriptionStatus } from "./TranscriptionStatus";
 import { PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -93,6 +102,7 @@ function PhraseListEditor(props: {
 }
 
 export function VoiceModeSettingsSection() {
+  const { settings, setSettings } = useVoiceSettings();
   const { phrases, setPhrases, reset } = useVoicePhrases();
   const onEdit = (edit: VoicePhraseEdit) => {
     if (edit.ok) setPhrases(edit.phrases);
@@ -108,6 +118,45 @@ export function VoiceModeSettingsSection() {
 
   return (
     <SettingsSection id="voice-mode" title="Voice mode">
+      <SettingsRow
+        {...searchableSetting("voice-mode-send-mode")}
+        description="Send with a spoken keyword or automatically after a pause."
+      >
+        <Select
+          value={settings.sendMode}
+          onValueChange={(value) => {
+            if (value === "keyword" || value === "pause")
+              setSettings({ ...settings, sendMode: value });
+          }}
+        >
+          <SelectTrigger size="sm" aria-label="Send mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="keyword">Keyword</SelectItem>
+            <SelectItem value="pause">Pause</SelectItem>
+          </SelectPopup>
+        </Select>
+      </SettingsRow>
+      <SettingsRow
+        {...searchableSetting("voice-mode-pause")}
+        description="Seconds before sending after transcription. Speak again or click the countdown to cancel."
+      >
+        <Input
+          size="sm"
+          type="number"
+          min={1}
+          max={30}
+          aria-label="Pause length in seconds"
+          value={settings.pauseSeconds}
+          onChange={(event) =>
+            setSettings({ ...settings, pauseSeconds: Number(event.target.value) })
+          }
+        />
+      </SettingsRow>
+      <SettingsRow {...searchableSetting("voice-mode-model")}>
+        <TranscriptionStatus />
+      </SettingsRow>
       <SettingsRow
         {...searchableSetting("voice-mode-send")}
         description="Say one of these at the end of a phrase to send the message. Ignores case and trailing punctuation."

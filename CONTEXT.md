@@ -19,3 +19,5 @@ One utterance cut from the microphone stream by the voice activity detector afte
 **Staged build**: A completed fork update waiting to replace the installed app.
 
 **Needs fixing**: A fork update whose rebase conflicted and needs an agent to resolve it. The installed app remains usable.
+
+**Pause mode**: Voice mode send setting that submits the draft after a configurable silence countdown. Speaking again or clicking the countdown cancels it; keyword commands still work.

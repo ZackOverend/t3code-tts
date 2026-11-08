@@ -64,7 +64,10 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
         : state.phase === "speaking"
           ? Volume2Icon
           : MicIcon;
-  const label = describe(state);
+  const label =
+    state.pauseRemaining === undefined
+      ? describe(state)
+      : `Sending in ${state.pauseRemaining}s. Click to cancel`;
 
   return (
     <Tooltip>
@@ -80,6 +83,7 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
           />
         }
       >
+        {state.pauseRemaining !== undefined ? <span>{state.pauseRemaining}s</span> : null}
         <Icon
           aria-hidden
           className={

@@ -791,6 +791,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["text to speech tts audio sample test voice stop playback"],
   },
   {
+    id: "voice-mode-send-mode",
+    title: "Send mode",
+    to: "/settings/audio",
+    searchTerms: ["voice mode keyword pause automatic"],
+  },
+  {
+    id: "voice-mode-pause",
+    title: "Pause length",
+    to: "/settings/audio",
+    searchTerms: ["voice mode silence countdown seconds"],
+  },
+  {
+    id: "voice-mode-model",
+    title: "Transcription model",
+    to: "/settings/audio",
+    searchTerms: ["voice mode status loaded idle unavailable"],
+  },
+  {
     id: "voice-mode-send",
     title: "Send phrases",
     to: "/settings/audio",

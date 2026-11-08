@@ -33,3 +33,24 @@ export const daemonTranscriber: VoiceModeTranscriber = {
     return typeof body.text === "string" ? body.text : "";
   },
 };
+
+export async function readTranscriptionStatus(signal: AbortSignal) {
+  try {
+    const response = await daemonFetch("/stt/status", { signal });
+    if (!response.ok) throw new Error("Status unavailable");
+    const body: unknown = await response.json();
+    if (typeof body !== "object" || body === null || !("model" in body) || !("state" in body))
+      throw new Error("Invalid status");
+    return {
+      model: typeof body.model === "string" ? body.model : "Transcription model",
+      state:
+        body.state === "unloaded"
+          ? "idle"
+          : body.state === "loaded" || body.state === "loading"
+            ? body.state
+            : "unavailable",
+    };
+  } catch {
+    return { model: "Transcription model", state: "unavailable" };
+  }
+}

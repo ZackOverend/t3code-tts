@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   VoiceModeController,
@@ -69,6 +69,7 @@ function createHarness(
     stopMicrophone?: () => Promise<void>;
     check?: () => Promise<void>;
     phrases?: VoicePhrases;
+    settings?: { sendMode: "keyword" | "pause"; pauseSeconds: number };
   } = {},
 ) {
   const composer = createComposer("environment:thread", options.draft);
@@ -109,6 +110,7 @@ function createHarness(
       },
     },
     phrases: () => phrases,
+    settings: () => options.settings ?? { sendMode: "keyword", pauseSeconds: 3 },
     isPlaybackActive: () => playbackActive,
     getPlaybackText: () => (playbackActive ? playbackText : null),
     stopPlayback: () => {
@@ -165,6 +167,81 @@ function createHarness(
 }
 
 describe("VoiceModeController", () => {
+  it.each(["speech", "click", "clear", "keyword", "edit", "off", "settings"] as const)(
+    "handles %s during a pause countdown",
+    async (action) => {
+      vi.useFakeTimers();
+      try {
+        const settings = { sendMode: "pause" as "pause" | "keyword", pauseSeconds: 3 };
+        const h = createHarness({ settings });
+        await h.controller.turnOn();
+        h.say(1, "Hello");
+        await h.listening();
+        if (action === "speech") h.startSpeech();
+        if (action === "click") h.controller.toggle();
+        if (action === "edit") h.type("Edited");
+        if (action === "off") h.controller.turnOff();
+        if (action === "settings") settings.sendMode = "keyword";
+        if (action === "clear" || action === "keyword") {
+          h.say(2, action === "clear" ? "scratch that" : "send it");
+          await h.listening();
+        }
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(h.sent).toEqual(action === "keyword" ? ["Hello"] : []);
+        expect(h.controller.state.pauseRemaining).toBeUndefined();
+        if (action === "clear") expect(h.draft).toBe("");
+        if (action === "click") expect(h.controller.enabled).toBe(true);
+        h.controller.turnOff();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("reads pause settings again in an active session", async () => {
+    vi.useFakeTimers();
+    try {
+      const settings = { sendMode: "keyword" as "pause" | "keyword", pauseSeconds: 3 };
+      const h = createHarness({ settings });
+      await h.controller.turnOn();
+      h.say(1, "Hello");
+      await h.listening();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(h.sent).toEqual([]);
+      settings.sendMode = "pause";
+      settings.pauseSeconds = 2;
+      h.say(2, "world");
+      await h.listening();
+      expect(h.controller.state.pauseRemaining).toBe(2);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(h.sent).toEqual(["Hello world"]);
+      h.controller.turnOff();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts down then sends a replacement through normal submit", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = createHarness({ settings: { sendMode: "pause", pauseSeconds: 3 } });
+      h.composer.runningTurnId = "turn-1";
+      await h.controller.turnOn();
+      h.say(1, "New plan");
+      await h.listening();
+      expect(h.controller.state.pauseRemaining).toBe(3);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(h.sent).toEqual([]);
+      expect(h.controller.state.pauseRemaining).toBe(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(h.sent).toEqual(["New plan"]);
+      expect(h.composer.runningTurnId).toBeNull();
+      h.controller.turnOff();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("interrupts a running turn once before appending, then sends the replacement", async () => {
     const h = createHarness({ draft: "Next:" });
     h.composer.runningTurnId = "turn-1";

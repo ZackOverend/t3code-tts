@@ -16,6 +16,7 @@ export type VoiceModePhase =
 
 export interface VoiceModeState {
   readonly phase: VoiceModePhase;
+  readonly pauseRemaining?: number;
   /** Why voice mode turned itself off; set only in the "error" phase. */
   readonly error: string | null;
   /** A phrase that was dropped while voice mode kept running. */
@@ -107,12 +108,15 @@ export interface VoiceModeDependencies {
   readonly stopPlayback: () => void;
   /** Read for every phrase, so settings changes apply mid-session. */
   readonly phrases: () => VoicePhrases;
+  readonly settings: () => { sendMode: "keyword" | "pause"; pauseSeconds: number };
 }
 
 const OFF: VoiceModeState = { phase: "off", error: null, notice: null };
 
 export class VoiceModeController {
   private current: VoiceModeState = OFF;
+  private pauseTimer: ReturnType<typeof setInterval> | null = null;
+  private speechGeneration = 0;
   private readonly listeners = new Set<() => void>();
   // Bumped on every turn on/off so work started by an earlier run is dropped when it settles.
   private runId = 0;
@@ -131,8 +135,10 @@ export class VoiceModeController {
   }
 
   registerTarget(target: ComposerTarget): () => void {
+    this.cancelCountdown();
     this.targets.push(target);
     return () => {
+      this.cancelCountdown();
       this.targets = this.targets.filter((candidate) => candidate !== target);
     };
   }
@@ -163,7 +169,38 @@ export class VoiceModeController {
     return () => this.listeners.delete(listener);
   };
 
+  cancelCountdown(): void {
+    this.speechGeneration += 1;
+    if (this.pauseTimer !== null) clearInterval(this.pauseTimer);
+    this.pauseTimer = null;
+    this.setState({ ...this.current, pauseRemaining: undefined });
+  }
+
+  private startCountdown(target: ComposerTarget, text: string, replace: boolean): void {
+    const settings = this.dependencies.settings();
+    if (settings.sendMode !== "pause") return;
+    let elapsed = 0;
+    this.setState({ ...this.current, pauseRemaining: settings.pauseSeconds });
+    this.pauseTimer = setInterval(() => {
+      const current = this.dependencies.settings();
+      if (current.sendMode !== "pause" || this.target !== target || target.readDraft() !== text) {
+        this.cancelCountdown();
+        return;
+      }
+      elapsed += 1;
+      const remaining = Math.max(0, current.pauseSeconds - elapsed);
+      if (remaining === 0) {
+        this.cancelCountdown();
+        target.submit(replace);
+      } else this.setState({ ...this.current, pauseRemaining: remaining });
+    }, 1000);
+  }
+
   toggle(): void {
+    if (this.current.pauseRemaining !== undefined) {
+      this.cancelCountdown();
+      return;
+    }
     if (this.enabled) this.turnOff();
     else void this.turnOn();
   }
@@ -182,7 +219,10 @@ export class VoiceModeController {
       if (run !== this.runId) return;
       const source = this.dependencies.createSpeechSource({
         onSpeechStart: () => {
-          if (run === this.runId) this.segmentPlaybackText = this.dependencies.getPlaybackText();
+          if (run === this.runId) {
+            this.cancelCountdown();
+            this.segmentPlaybackText = this.dependencies.getPlaybackText();
+          }
         },
         onSegment: (audio) => this.enqueue(run, audio),
         onError: (error) => this.fail(run, error),
@@ -217,6 +257,7 @@ export class VoiceModeController {
   }
 
   private halt(): void {
+    this.cancelCountdown();
     this.runId += 1;
     this.queue = [];
     this.segmentPlaybackText = null;
@@ -241,6 +282,7 @@ export class VoiceModeController {
 
   private enqueue(run: number, audio: Float32Array): void {
     if (run !== this.runId || this.current.phase === "starting") return;
+    this.cancelCountdown();
     // Keep the reply reference through VAD hangover, transcription and queue delays.
     this.queue.push({
       audio,
@@ -277,6 +319,7 @@ export class VoiceModeController {
     audio: Float32Array,
     playbackText: string | null,
   ): Promise<void> {
+    const generation = this.speechGeneration;
     const before = this.target;
     const abort = this.abort;
     if (!abort) return;
@@ -332,11 +375,18 @@ export class VoiceModeController {
     if (phrase.command === "send" && finalText.trim() !== "")
       target.submit(turnId !== null && this.interruptedTurns.get(target.key) === turnId);
     else if (phrase.command === "clear") target.commitDraft("");
+    else if (result.kind === "commit" && finalText.trim() && generation === this.speechGeneration)
+      this.startCountdown(
+        target,
+        finalText,
+        turnId !== null && this.interruptedTurns.get(target.key) === turnId,
+      );
   }
 
   private setState(next: VoiceModeState): void {
     const previous = this.current;
     if (
+      previous.pauseRemaining === next.pauseRemaining &&
       previous.phase === next.phase &&
       previous.error === next.error &&
       previous.notice === next.notice
