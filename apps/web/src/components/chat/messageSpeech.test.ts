@@ -141,7 +141,11 @@ function stubWebAudio() {
 
 function stubFetch(handler: (url: string, init?: RequestInit) => Promise<Response>) {
   const fetchMock = vi.fn(handler);
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+    url.endsWith("/synthesize-timed")
+      ? Promise.resolve(new Response(null, { status: 404 }))
+      : fetchMock(url, init),
+  );
   return fetchMock;
 }
 

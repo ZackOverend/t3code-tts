@@ -1,3 +1,5 @@
+import { TimedFrames, sliceFromWord } from "./speechTiming";
+import { speechHighlight } from "./speechHighlight";
 import { readTtsVoiceSettings, type TtsVoiceSettings } from "./ttsPreferences";
 
 export const TTS_DAEMON_URL = "http://127.0.0.1:7788";
@@ -12,6 +14,8 @@ export type Playback = { id: string | null; state: PlaybackState };
 // shared by every mounted button and by a future voice-mode controller.
 type Session = {
   text: string;
+  prefix: string;
+  highlight?: ReturnType<typeof speechHighlight>;
   context: AudioContext | null;
   abort: AbortController;
   sources: Set<AudioBufferSourceNode>;
@@ -84,6 +88,7 @@ function buildSynthesizeBody(text: string, { voice, speed }: TtsVoiceSettings, m
 
 function endSession(ended: Session) {
   if (session === ended) session = null;
+  ended.highlight?.stop();
   ended.abort.abort();
   for (const source of ended.sources) {
     source.onended = null;
@@ -119,6 +124,7 @@ function scheduleChunk(current: Session, samples: Float32Array<ArrayBuffer>, sam
     current.sources.delete(source);
     if (current.streamDone && current.sources.size === 0) finish(current);
   };
+  return startAt;
 }
 
 async function play(current: Session, body: object, onError?: () => void) {
@@ -126,12 +132,18 @@ async function play(current: Session, body: object, onError?: () => void) {
   try {
     current.context = new AudioContext();
     void current.context.resume().catch(() => {});
-    const response = await fetch(`${TTS_DAEMON_URL}/synthesize`, {
+    const request = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: current.abort.signal,
-    });
+    };
+    let response = await fetch(`${TTS_DAEMON_URL}/synthesize-timed`, request);
+    const timed = response.status !== 404 && response.status !== 405;
+    if (!timed) {
+      await response.body?.cancel();
+      response = await fetch(`${TTS_DAEMON_URL}/synthesize`, request);
+    }
     if (session !== current) return;
     reachedDaemon = true;
     setDaemonReachable(true);
@@ -140,12 +152,22 @@ async function play(current: Session, body: object, onError?: () => void) {
     if (response.status === 204 || !response.body) return finish(current);
     if (!(sampleRate > 0)) throw new Error("TTS daemon sent no sample rate");
 
+    if (timed) current.highlight = speechHighlight(playback.id!, current.context, current.prefix);
+    const parser = new TimedFrames();
     const reader = response.body.getReader();
     let carry = new Uint8Array(0);
     for (;;) {
       const { done, value } = await reader.read();
       if (session !== current) return void reader.cancel().catch(() => {});
       if (done) break;
+      if (timed) {
+        for (const frame of parser.push(value)) {
+          if (!frame.pcm.length) continue;
+          const start = scheduleChunk(current, frame.pcm, sampleRate);
+          current.highlight?.add(frame.text, frame.words, start, frame.pcm.length / sampleRate);
+        }
+        continue;
+      }
       const bytes = new Uint8Array(carry.length + value.length);
       bytes.set(carry);
       bytes.set(value, carry.length);
@@ -155,6 +177,7 @@ async function play(current: Session, body: object, onError?: () => void) {
         scheduleChunk(current, new Float32Array(bytes.slice(0, usable).buffer), sampleRate);
       }
     }
+    if (timed) parser.finish();
     current.streamDone = true;
     if (current.sources.size === 0) finish(current);
   } catch {
@@ -170,10 +193,11 @@ async function play(current: Session, body: object, onError?: () => void) {
   }
 }
 
-function speak(text: string, id: string, md: boolean, onError?: () => void) {
+function speak(text: string, id: string, md: boolean, onError?: () => void, prefix = "") {
   stopSpeech();
   const current: Session = {
     text,
+    prefix,
     context: null,
     abort: new AbortController(),
     sources: new Set(),
@@ -187,6 +211,10 @@ function speak(text: string, id: string, md: boolean, onError?: () => void) {
 
 export function speakMessage(text: string, onError?: () => void) {
   return speak(text, hashText(text), true, onError);
+}
+
+export function speakMessageFrom(text: string, offset: number) {
+  return speak(sliceFromWord(text, offset), hashText(text), true, undefined, text.slice(0, offset));
 }
 
 export function previewVoice(onError?: () => void) {

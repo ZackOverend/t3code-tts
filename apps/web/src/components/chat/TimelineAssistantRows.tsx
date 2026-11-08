@@ -1,3 +1,5 @@
+import { hashText, speakMessageFrom } from "./messageSpeech";
+import { clickedSpeechOffset } from "./speechHighlight";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -39,7 +41,14 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
     <>
       <div className="relative min-w-0 px-1 py-0.5">
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        <div data-thread-find-text="true">
+        <div
+          data-thread-find-text="true"
+          data-speech-id={hashText(messageText)}
+          onClick={(event) => {
+            const offset = clickedSpeechOffset(event.currentTarget, messageText, event);
+            if (offset !== null) void speakMessageFrom(messageText, offset);
+          }}
+        >
           <AssistantCitationSource
             messageId={row.message.id}
             {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}

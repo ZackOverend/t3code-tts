@@ -2569,3 +2569,11 @@ code {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+
+::highlight(tts-word) {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+::highlight(tts-sentence) {
+  background-color: color-mix(in srgb, var(--primary) 15%, transparent);
+}
