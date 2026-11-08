@@ -41,3 +41,8 @@ it("keeps repeated words in source order and skips link destinations", () => {
     { start: 29, end: 31 },
   ]);
 });
+it("a word missing nearby does not jump alignment to a far match", () => {
+  const source = `alpha beta ${"filler ".repeat(20)}the end`;
+  const ranges = alignWords(source, ["alpha", "beta", "the", "filler"]);
+  expect(ranges.map((r) => source.slice(r.start, r.end))).toEqual(["alpha", "beta", "", "filler"]);
+});

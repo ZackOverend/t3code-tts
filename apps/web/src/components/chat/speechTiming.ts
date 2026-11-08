@@ -61,6 +61,7 @@ function normalize(text: string) {
     })
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
+const MAX_SKIPPED_TOKENS = 12;
 export function alignWords(source: string, words: string[]) {
   const clean = source.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`]*`|\]\([^)]*\)/g, (value) =>
     " ".repeat(value.length),
@@ -69,7 +70,10 @@ export function alignWords(source: string, words: string[]) {
   let cursor = 0;
   return words.map((word) => {
     const key = normalize(word);
-    const index = tokens.findIndex((token, i) => i >= cursor && normalize(token[0]) === key);
+    // Bounded so one unmatched word can't jump the rest of the reply far ahead.
+    const index = tokens.findIndex(
+      (token, i) => i >= cursor && i < cursor + MAX_SKIPPED_TOKENS && normalize(token[0]) === key,
+    );
     if (index < 0) return { start: 0, end: 0 };
     cursor = index + 1;
     const token = tokens[index]!;
