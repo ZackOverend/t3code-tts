@@ -1,3 +1,4 @@
+import { Switch } from "../components/ui/switch";
 import {
   Select,
   SelectItem,
@@ -118,6 +119,16 @@ export function VoiceModeSettingsSection() {
 
   return (
     <SettingsSection id="voice-mode" title="Voice mode">
+      <SettingsRow
+        {...searchableSetting("voice-mode-preview")}
+        description="Show a live transcript while you speak. Only the final transcript changes your draft."
+      >
+        <Switch
+          aria-label="Live preview"
+          checked={settings.livePreview}
+          onCheckedChange={(livePreview) => setSettings({ ...settings, livePreview })}
+        />
+      </SettingsRow>
       <SettingsRow
         {...searchableSetting("voice-mode-send-mode")}
         description="Send with a spoken keyword or automatically after a pause."

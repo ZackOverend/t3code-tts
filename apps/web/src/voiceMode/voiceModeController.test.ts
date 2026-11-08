@@ -69,7 +69,7 @@ function createHarness(
     stopMicrophone?: () => Promise<void>;
     check?: () => Promise<void>;
     phrases?: VoicePhrases;
-    settings?: { sendMode: "keyword" | "pause"; pauseSeconds: number };
+    settings?: { sendMode: "keyword" | "pause"; pauseSeconds: number; livePreview?: boolean };
   } = {},
 ) {
   const composer = createComposer("environment:thread", options.draft);
@@ -94,6 +94,7 @@ function createHarness(
     },
   });
 
+  const transcribe = vi.fn(async (audio: Float32Array) => transcripts.get(audio[0] ?? -1) ?? "");
   const controller = new VoiceModeController({
     createSpeechSource: (next) => {
       handlers = next;
@@ -101,7 +102,7 @@ function createHarness(
     },
     transcriber: {
       check: async () => options.check?.(),
-      transcribe: async (audio) => transcripts.get(audio[0] ?? -1) ?? "",
+      transcribe,
     },
     persistence: {
       read: () => stored,
@@ -122,6 +123,7 @@ function createHarness(
 
   return {
     controller,
+    transcribe,
     get playbackActive() {
       return playbackActive;
     },
@@ -160,6 +162,11 @@ function createHarness(
       transcripts.set(id, transcript);
       handlers.onSegment(utterance(id));
     },
+    preview: (id: number, transcript: string | Promise<string>) => {
+      transcripts.set(id, Promise.resolve(transcript));
+      handlers.onFrame(utterance(id));
+    },
+    cancelSpeech: () => handlers.onSpeechCancel(),
     startSpeech: () => handlers.onSpeechStart(),
     sourceFails: (error: unknown) => handlers.onError(error),
     listening: () => until(controller, (state) => state.phase === "listening"),
@@ -167,6 +174,87 @@ function createHarness(
 }
 
 describe("VoiceModeController", () => {
+  it.each(["playback", "setting"] as const)("skips preview requests during %s", async (action) => {
+    vi.useFakeTimers();
+    try {
+      const h = createHarness({
+        settings: { sendMode: "keyword", pauseSeconds: 3, livePreview: action !== "setting" },
+      });
+      await h.controller.turnOn();
+      if (action === "playback") h.setPlayback(true);
+      h.startSpeech();
+      h.preview(90, "ignored");
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(h.transcribe).not.toHaveBeenCalled();
+      h.controller.turnOff();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["playback", "setting", "target", "off", "misfire"] as const)(
+    "invalidates a pending preview on %s",
+    async (action) => {
+      vi.useFakeTimers();
+      try {
+        const settings = { sendMode: "keyword" as const, pauseSeconds: 3, livePreview: true };
+        const h = createHarness({ settings });
+        await h.controller.turnOn();
+        h.startSpeech();
+        const pending = deferred<string>();
+        h.preview(90, pending.promise);
+        await vi.advanceTimersByTimeAsync(1000);
+        if (action === "playback") h.setPlayback(true);
+        if (action === "setting") settings.livePreview = false;
+        if (action === "target") h.controller.registerTarget(createComposer("other").target);
+        if (action === "off") h.controller.turnOff();
+        if (action === "misfire") h.cancelSpeech();
+        pending.resolve("Discard me");
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(h.controller.state.preview).toBeUndefined();
+        expect(h.draft).toBe("");
+        h.controller.turnOff();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("previews on cadence without commands, then drops stale results at phrase end", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = createHarness({ settings: { sendMode: "pause", pauseSeconds: 3 } });
+      await h.controller.turnOn();
+      h.composer.runningTurnId = "running";
+      h.startSpeech();
+      h.preview(90, "send it");
+      await vi.advanceTimersByTimeAsync(999);
+      expect(h.controller.state.preview).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(h.controller.state.preview).toBe("send it");
+      expect(h.draft).toBe("");
+      expect(h.sent).toEqual([]);
+      expect(h.composer.interrupted).toEqual([]);
+      expect(h.controller.state.pauseRemaining).toBeUndefined();
+      const pending = deferred<string>();
+      h.preview(90, pending.promise);
+      await vi.advanceTimersByTimeAsync(1000);
+      h.preview(92, "scratch that");
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(h.controller.state.preview).toBe("send it");
+      expect(h.transcribe).toHaveBeenCalledTimes(2);
+      h.say(1, "Final words");
+      await h.listening();
+      pending.resolve("stale");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.controller.state.preview).toBeUndefined();
+      expect(h.draft).toBe("Final words");
+      h.controller.turnOff();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["speech", "click", "clear", "keyword", "edit", "off", "settings"] as const)(
     "handles %s during a pause countdown",
     async (action) => {

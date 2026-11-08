@@ -797,6 +797,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["voice mode keyword pause automatic"],
   },
   {
+    id: "voice-mode-preview",
+    title: "Live preview",
+    to: "/settings/audio",
+    searchTerms: ["voice mode ghost text live transcription"],
+  },
+  {
     id: "voice-mode-pause",
     title: "Pause length",
     to: "/settings/audio",

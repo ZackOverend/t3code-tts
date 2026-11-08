@@ -70,30 +70,37 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
       : `Sending in ${state.pauseRemaining}s. Click to cancel`;
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Toggle
-            aria-label="Voice mode"
-            pressed={state.phase !== "off" && state.phase !== "error"}
-            onPressedChange={() => controller.toggle()}
-            onPointerDown={(event) => event.preventDefault()}
-            size="sm"
-            variant="ghost"
-          />
-        }
-      >
-        {state.pauseRemaining !== undefined ? <span>{state.pauseRemaining}s</span> : null}
-        <Icon
-          aria-hidden
-          className={
-            state.phase === "transcribing" || state.phase === "starting"
-              ? "animate-spin"
-              : undefined
+    <>
+      {state.preview && state.previewOwner === props.ownerKey ? (
+        <span className="max-w-64 whitespace-pre-wrap break-words text-xs italic text-muted-foreground">
+          {state.preview}
+        </span>
+      ) : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              aria-label="Voice mode"
+              pressed={state.phase !== "off" && state.phase !== "error"}
+              onPressedChange={() => controller.toggle()}
+              onPointerDown={(event) => event.preventDefault()}
+              size="sm"
+              variant="ghost"
+            />
           }
-        />
-      </TooltipTrigger>
-      <TooltipPopup>{label}</TooltipPopup>
-    </Tooltip>
+        >
+          {state.pauseRemaining !== undefined ? <span>{state.pauseRemaining}s</span> : null}
+          <Icon
+            aria-hidden
+            className={
+              state.phase === "transcribing" || state.phase === "starting"
+                ? "animate-spin"
+                : undefined
+            }
+          />
+        </TooltipTrigger>
+        <TooltipPopup>{label}</TooltipPopup>
+      </Tooltip>
+    </>
   );
 });

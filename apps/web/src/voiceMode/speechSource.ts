@@ -78,6 +78,8 @@ export function createVadSpeechSource(handlers: SpeechSourceHandlers): SpeechSou
             }
           },
           onSpeechStart: handlers.onSpeechStart,
+          onFrameProcessed: (_probabilities, frame) => handlers.onFrame(frame),
+          onVADMisfire: handlers.onSpeechCancel,
           onSpeechEnd: (audio) => handlers.onSegment(audio),
         });
         vad = created;

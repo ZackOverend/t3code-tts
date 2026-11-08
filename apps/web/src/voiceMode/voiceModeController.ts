@@ -16,6 +16,8 @@ export type VoiceModePhase =
 
 export interface VoiceModeState {
   readonly phase: VoiceModePhase;
+  readonly preview?: string | undefined;
+  readonly previewOwner?: string | undefined;
   readonly pauseRemaining?: number | undefined;
   /** Why voice mode turned itself off; set only in the "error" phase. */
   readonly error: string | null;
@@ -62,6 +64,8 @@ function describeError(error: unknown): string {
 
 export interface SpeechSourceHandlers {
   readonly onSpeechStart: () => void;
+  readonly onFrame: (audio: Float32Array) => void;
+  readonly onSpeechCancel: () => void;
   /** One finished utterance: 16 kHz mono samples. */
   readonly onSegment: (audio: Float32Array) => void;
   /** The source died after it started (device unplugged, stream ended). */
@@ -108,13 +112,77 @@ export interface VoiceModeDependencies {
   readonly stopPlayback: () => void;
   /** Read for every phrase, so settings changes apply mid-session. */
   readonly phrases: () => VoicePhrases;
-  readonly settings: () => { sendMode: "keyword" | "pause"; pauseSeconds: number };
+  readonly settings: () => {
+    sendMode: "keyword" | "pause";
+    pauseSeconds: number;
+    livePreview?: boolean;
+  };
 }
 
 const OFF: VoiceModeState = { phase: "off", error: null, notice: null };
 
 export class VoiceModeController {
+  private previewTimer: ReturnType<typeof setInterval> | null = null;
+  private previewAbort: AbortController | null = null;
+  private previewBusy = false;
+  private previewGeneration = 0;
+  private previewFrames: Float32Array[] = [];
   private current: VoiceModeState = OFF;
+
+  private clearPreview(): void {
+    this.previewGeneration += 1;
+    if (this.previewTimer !== null) clearInterval(this.previewTimer);
+    this.previewTimer = null;
+    this.previewFrames = [];
+    this.previewAbort?.abort();
+    this.setState({ ...this.current, preview: undefined, previewOwner: undefined });
+  }
+
+  private async updatePreview(): Promise<void> {
+    if (
+      this.dependencies.settings().livePreview === false ||
+      this.dependencies.isPlaybackActive()
+    ) {
+      this.previewGeneration += 1;
+      this.previewAbort?.abort();
+      this.setState({ ...this.current, preview: undefined, previewOwner: undefined });
+      return;
+    }
+    const target = this.target;
+    if (this.previewBusy || !target || !this.previewFrames.length || this.drainingRun !== null)
+      return;
+    const generation = this.previewGeneration;
+    const draft = target.readDraft();
+    const audio = new Float32Array(
+      this.previewFrames.reduce((size, frame) => size + frame.length, 0),
+    );
+    let offset = 0;
+    for (const frame of this.previewFrames) {
+      audio.set(frame, offset);
+      offset += frame.length;
+    }
+    const abort = new AbortController();
+    this.previewAbort = abort;
+    this.previewBusy = true;
+    try {
+      const preview = await this.dependencies.transcriber.transcribe(audio, abort.signal);
+      if (
+        generation === this.previewGeneration &&
+        !abort.signal.aborted &&
+        this.target === target &&
+        target.readDraft() === draft &&
+        this.dependencies.settings().livePreview !== false &&
+        !this.dependencies.isPlaybackActive()
+      )
+        this.setState({ ...this.current, preview, previewOwner: target.key });
+    } catch {
+      // Preview failures must not prevent final transcription.
+    } finally {
+      this.previewBusy = false;
+      if (this.previewAbort === abort) this.previewAbort = null;
+    }
+  }
+
   private pauseTimer: ReturnType<typeof setInterval> | null = null;
   private speechGeneration = 0;
   private readonly listeners = new Set<() => void>();
@@ -136,9 +204,11 @@ export class VoiceModeController {
 
   registerTarget(target: ComposerTarget): () => void {
     this.cancelCountdown();
+    this.clearPreview();
     this.targets.push(target);
     return () => {
       this.cancelCountdown();
+      this.clearPreview();
       this.targets = this.targets.filter((candidate) => candidate !== target);
     };
   }
@@ -156,6 +226,7 @@ export class VoiceModeController {
   }
 
   syncPlayback = (): void => {
+    if (this.dependencies.isPlaybackActive()) this.clearPreview();
     if (!this.enabled || this.current.phase === "starting" || this.drainingRun === this.runId)
       return;
     this.setState({
@@ -221,8 +292,22 @@ export class VoiceModeController {
         onSpeechStart: () => {
           if (run === this.runId) {
             this.cancelCountdown();
+            this.clearPreview();
+            this.previewTimer = setInterval(() => void this.updatePreview(), 1000);
             this.segmentPlaybackText = this.dependencies.getPlaybackText();
           }
+        },
+        onFrame: (audio) => {
+          if (
+            run === this.runId &&
+            this.previewTimer !== null &&
+            this.dependencies.settings().livePreview !== false &&
+            !this.dependencies.isPlaybackActive()
+          )
+            this.previewFrames.push(audio.slice());
+        },
+        onSpeechCancel: () => {
+          if (run === this.runId) this.clearPreview();
         },
         onSegment: (audio) => this.enqueue(run, audio),
         onError: (error) => this.fail(run, error),
@@ -257,6 +342,7 @@ export class VoiceModeController {
   }
 
   private halt(): void {
+    this.clearPreview();
     this.cancelCountdown();
     this.runId += 1;
     this.queue = [];
@@ -283,6 +369,7 @@ export class VoiceModeController {
   private enqueue(run: number, audio: Float32Array): void {
     if (run !== this.runId || this.current.phase === "starting") return;
     this.cancelCountdown();
+    this.clearPreview();
     // Keep the reply reference through VAD hangover, transcription and queue delays.
     this.queue.push({
       audio,
@@ -388,6 +475,8 @@ export class VoiceModeController {
     if (
       previous.pauseRemaining === next.pauseRemaining &&
       previous.phase === next.phase &&
+      previous.preview === next.preview &&
+      previous.previewOwner === next.previewOwner &&
       previous.error === next.error &&
       previous.notice === next.notice
     ) {
