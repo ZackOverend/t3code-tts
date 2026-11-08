@@ -5,6 +5,7 @@ import { toastManager } from "../components/ui/toast";
 import { getLocalStorageItem, setLocalStorageItem } from "../hooks/useLocalStorage";
 import { daemonTranscriber } from "./daemonTranscriber";
 import { createVadSpeechSource } from "./speechSource";
+import { readVoicePhrases } from "./voicePhrases";
 import { VoiceModeController, type VoiceModePersistence } from "./voiceModeController";
 
 const VOICE_MODE_KEY = "t3code:voice-mode";
@@ -35,6 +36,7 @@ export function getVoiceModeController(): VoiceModeController {
     createSpeechSource: createVadSpeechSource,
     transcriber: daemonTranscriber,
     persistence: localStorageVoiceModePersistence,
+    phrases: readVoicePhrases,
   });
   let lastMessage: string | null = null;
   // Toasts live here, not in the toggle: an error at launch happens before any composer mounts.

@@ -3,7 +3,7 @@ import {
   type VoiceDraftSnapshot,
 } from "@t3tools/client-runtime/voice-input";
 
-import { parseVoicePhrase } from "./voiceCommands";
+import { parseVoicePhrase, type VoicePhrases } from "./voiceCommands";
 
 export type VoiceModePhase = "off" | "starting" | "listening" | "transcribing" | "error";
 
@@ -92,6 +92,8 @@ export interface VoiceModeDependencies {
   readonly createSpeechSource: (handlers: SpeechSourceHandlers) => SpeechSource;
   readonly transcriber: VoiceModeTranscriber;
   readonly persistence: VoiceModePersistence;
+  /** Read for every phrase, so settings changes apply mid-session. */
+  readonly phrases: () => VoicePhrases;
 }
 
 const OFF: VoiceModeState = { phase: "off", error: null, notice: null };
@@ -232,7 +234,7 @@ export class VoiceModeController {
       this.setState({ ...this.current, notice: NO_COMPOSER_NOTICE });
       return;
     }
-    const phrase = parseVoicePhrase(transcript);
+    const phrase = parseVoicePhrase(transcript, this.dependencies.phrases());
     const draft = target.readDraft();
     const result = resolveTranscriptCommit(
       captured,

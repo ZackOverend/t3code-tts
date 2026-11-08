@@ -791,6 +791,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["text to speech tts audio sample test voice stop playback"],
   },
   {
+    id: "voice-mode-send",
+    title: "Send phrases",
+    to: "/settings/audio",
+    searchTerms: ["voice mode speech dictation microphone say spoken command send it submit"],
+  },
+  {
+    id: "voice-mode-clear",
+    title: "Clear phrases",
+    to: "/settings/audio",
+    searchTerms: ["voice mode speech dictation microphone say spoken command scratch that erase"],
+  },
+  {
     id: "keybindings",
     title: "Keybindings",
     to: "/settings/keybindings",

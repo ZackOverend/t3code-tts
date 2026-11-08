@@ -7,6 +7,7 @@ import {
   type SpeechSourceHandlers,
   type VoiceModeState,
 } from "./voiceModeController";
+import { DEFAULT_VOICE_PHRASES, type VoicePhrases } from "./voiceCommands";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -52,6 +53,7 @@ function createHarness(
     withoutComposer?: boolean;
     startMicrophone?: () => Promise<void>;
     check?: () => Promise<void>;
+    phrases?: VoicePhrases;
   } = {},
 ) {
   const composer = createComposer("environment:thread", options.draft);
@@ -59,6 +61,7 @@ function createHarness(
   let microphoneOpen = false;
   let handlers!: SpeechSourceHandlers;
   const transcripts = new Map<number, Promise<string>>();
+  let phrases = options.phrases ?? DEFAULT_VOICE_PHRASES;
 
   const source: SpeechSource = {
     start: async () => {
@@ -85,6 +88,7 @@ function createHarness(
         stored = on;
       },
     },
+    phrases: () => phrases,
   });
   if (!options.withoutComposer) controller.registerTarget(composer.target);
 
@@ -105,6 +109,9 @@ function createHarness(
     },
     type: (text: string) => {
       composer.draft = text;
+    },
+    setPhrases: (next: VoicePhrases) => {
+      phrases = next;
     },
     say: (id: number, transcript: string | Promise<string>) => {
       transcripts.set(id, Promise.resolve(transcript));
@@ -377,6 +384,88 @@ describe("VoiceModeController", () => {
       expect(h.draft).toBe(
         "please send it to the reviewer I will scratch that itch then resend it",
       );
+    });
+
+    it("uses custom phrases instead of the defaults", async () => {
+      const h = createHarness({ phrases: { send: ["over and out"], clear: ["never mind"] } });
+      await h.controller.turnOn();
+
+      h.say(1, "fix the bug, send it");
+      await h.listening();
+      h.say(2, "and ship it, Over and out.");
+      await h.listening();
+      h.say(3, "oops never mind");
+      await h.listening();
+
+      expect(h.sent).toEqual(["fix the bug, send it and ship it"]);
+      expect(h.draft).toBe("");
+    });
+
+    it("matches multi-word phrases across uneven spacing", async () => {
+      const h = createHarness({ phrases: { send: ["go ahead"], clear: ["start over"] } });
+      await h.controller.turnOn();
+
+      h.say(1, "deploy it Go   ahead");
+      await h.listening();
+
+      expect(h.sent).toEqual(["deploy it"]);
+    });
+
+    it("matches any phrase on a list, and the longest one wins", async () => {
+      const h = createHarness({
+        phrases: { send: ["send", "please send"], clear: ["scratch that"] },
+      });
+      await h.controller.turnOn();
+
+      h.say(1, "hello please send");
+      await h.listening();
+      h.say(2, "goodbye send");
+      await h.listening();
+
+      expect(h.sent).toEqual(["hello", "goodbye"]);
+    });
+
+    it("treats regex characters in a phrase as plain text", async () => {
+      const h = createHarness({ phrases: { send: ["over|out"], clear: ["scratch.*"] } });
+      await h.controller.turnOn();
+
+      h.say(1, "hello out");
+      await h.listening();
+      h.say(2, "scratch that");
+      await h.listening();
+      expect(h.sent).toEqual([]);
+      expect(h.draft).toBe("hello out scratch that");
+
+      h.say(3, "bye over|out");
+      await h.listening();
+      expect(h.sent).toEqual(["hello out scratch that bye"]);
+    });
+
+    it("does not match a custom phrase inside a longer word", async () => {
+      const h = createHarness({ phrases: { send: ["go"], clear: ["scratch that"] } });
+      await h.controller.turnOn();
+
+      h.say(1, "let's ago");
+      await h.listening();
+      h.say(2, "o'go");
+      await h.listening();
+
+      expect(h.sent).toEqual([]);
+    });
+
+    it("applies phrase changes to the very next phrase mid-session", async () => {
+      const h = createHarness({ draft: "ready" });
+      await h.controller.turnOn();
+
+      h.say(1, "yes send it");
+      await h.listening();
+      h.setPhrases({ send: ["fire away"], clear: ["scratch that"] });
+      h.say(2, "again send it");
+      await h.listening();
+      h.say(3, "fire away");
+      await h.listening();
+
+      expect(h.sent).toEqual(["ready yes", "again send it"]);
     });
 
     it("does not send or clear a draft that was edited while the phrase was transcribed", async () => {

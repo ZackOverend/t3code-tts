@@ -34,6 +34,8 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { isElectron } from "../../env";
+import { VoiceModeSettingsSection } from "../../voiceMode/VoiceModeSettings";
 import {
   SettingResetButton,
   SettingsPageContainer,
@@ -179,6 +181,7 @@ export function AudioSettings() {
           }
         />
       </SettingsSection>
+      {isElectron ? <VoiceModeSettingsSection /> : null}
     </SettingsPageContainer>
   );
 }
