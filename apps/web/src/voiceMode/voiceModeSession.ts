@@ -75,3 +75,7 @@ export function startVoiceMode(): void {
 export function isVoiceModeEnabled(): boolean {
   return isElectron && getVoiceModeController().enabled;
 }
+
+export function subscribeVoiceMode(listener: () => void): () => void {
+  return isElectron ? getVoiceModeController().subscribe(listener) : () => {};
+}

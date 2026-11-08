@@ -1,10 +1,11 @@
-import { memo, useRef, useSyncExternalStore } from "react";
-import { AudioLinesIcon, PauseIcon, PlayIcon, Volume2Icon } from "lucide-react";
+import { memo, useRef, useState, useSyncExternalStore } from "react";
+import { PauseIcon, PlayIcon, Volume2Icon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ANCHORED_COPY_TOAST_TIMEOUT_MS } from "../ui/anchoredCopyToast";
 import { anchoredToastManager } from "../ui/toast";
-import { Toggle } from "../ui/toggle";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Label } from "../ui/label";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Switch } from "../ui/switch";
 import {
   getPlayback,
   hashText,
@@ -13,10 +14,12 @@ import {
   speakMessage,
   subscribe,
 } from "./messageSpeech";
+import { isVoiceModeEnabled, subscribeVoiceMode } from "../../voiceMode/voiceModeSession";
 import { useTtsAutoplaySetting } from "./ttsAutoplay";
 
 export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { text: string }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const id = hashText(text);
   const state = useSyncExternalStore(subscribe, () =>
     getPlayback().id === id ? getPlayback().state : "idle",
@@ -41,51 +44,44 @@ export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { t
   const Icon = state === "playing" ? PauseIcon : state === "paused" ? PlayIcon : Volume2Icon;
 
   return (
-    <>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              aria-label={label}
-              onClick={onClick}
-              ref={ref}
-              type="button"
-              size="xs"
-              variant="ghost-muted"
-            />
-          }
-        >
-          <Icon className="size-3" />
-        </TooltipTrigger>
-        <TooltipPopup>
-          <p>{label}</p>
-        </TooltipPopup>
-      </Tooltip>
-      <AutoplayToggle />
-    </>
-  );
-});
-
-function AutoplayToggle() {
-  const [autoplay, setAutoplay] = useTtsAutoplaySetting();
-  return (
-    <Tooltip>
-      <TooltipTrigger
+    <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+      <PopoverTrigger
+        openOnHover
         render={
-          <Toggle
-            aria-label="Automatically read new responses aloud"
-            pressed={autoplay}
-            onPressedChange={setAutoplay}
+          <Button
+            aria-label={label}
+            onClick={onClick}
+            onFocus={(event) => {
+              if (event.currentTarget.matches(":focus-visible")) setMenuOpen(true);
+            }}
+            ref={ref}
+            type="button"
             size="xs"
-            variant="ghost"
+            variant="ghost-muted"
           />
         }
       >
-        <AudioLinesIcon className="size-3" />
-      </TooltipTrigger>
-      <TooltipPopup>
-        <p>{autoplay ? "Autoplay on" : "Autoplay off"}</p>
-      </TooltipPopup>
-    </Tooltip>
+        <Icon className="size-3" />
+      </PopoverTrigger>
+      <PopoverPopup align="start" initialFocus={false} padding="compact" side="top">
+        <AutoplayMenu />
+      </PopoverPopup>
+    </Popover>
+  );
+});
+
+function AutoplayMenu() {
+  const [autoplay, setAutoplay] = useTtsAutoplaySetting();
+  const voiceMode = useSyncExternalStore(subscribeVoiceMode, isVoiceModeEnabled);
+  return (
+    <div className="flex w-48 flex-col gap-1.5">
+      <Label className="justify-between">
+        Autoplay
+        <Switch checked={autoplay} onCheckedChange={setAutoplay} size="sm" />
+      </Label>
+      {voiceMode ? (
+        <p className="text-muted-foreground text-xs">Voice mode reads replies aloud anyway.</p>
+      ) : null}
+    </div>
   );
 }
