@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { setLocalStorageItem } from "../../hooks/useLocalStorage";
 import {
   getDaemonReachable,
@@ -191,6 +193,24 @@ describe("saved voice settings reach the daemon", () => {
       voice: "bf_emma",
       speed: 1.3,
     });
+  });
+
+  it("speaks thread links by their label instead of spelling out the id", async () => {
+    stubWebAudio();
+    const env = EnvironmentId.make("env-1");
+    const autolink = formatThreadLink({
+      environmentId: env,
+      threadId: ThreadId.make("thread-abc123"),
+    });
+    const labeled = formatThreadLink(
+      { environmentId: env, threadId: ThreadId.make("thread-def456") },
+      "Fix the toggle",
+    );
+    const message = stubFetch(async () => new Response(null, { status: 204 }));
+    await speakMessage(`See ${autolink} and ${labeled}. Keep \`${autolink}\` as code.`);
+    expect(sentBody(message).text).toBe(
+      `See a linked thread and Fix the toggle. Keep \`${autolink}\` as code.`,
+    );
   });
 
   it("falls back to defaults when the stored values are invalid", () => {

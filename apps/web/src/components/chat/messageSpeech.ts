@@ -1,3 +1,4 @@
+import { replaceThreadLinks } from "@t3tools/shared/threadLinks";
 import { TimedFrames, sliceFromWord } from "./speechTiming";
 import { speechHighlight } from "./speechHighlight";
 import { readTtsVoiceSettings, type TtsVoiceSettings } from "./ttsPreferences";
@@ -82,8 +83,13 @@ export function hashText(text: string) {
   return (hash >>> 0).toString(36);
 }
 
+// Thread links would otherwise be read out character by character, id and all.
+function speakableMarkdown(markdown: string) {
+  return replaceThreadLinks(markdown, (_link, label) => label?.trim() || "a linked thread");
+}
+
 function buildSynthesizeBody(text: string, { voice, speed }: TtsVoiceSettings, md: boolean) {
-  return { text, ...(md ? { md: true } : {}), voice, speed };
+  return { text: md ? speakableMarkdown(text) : text, ...(md ? { md: true } : {}), voice, speed };
 }
 
 function endSession(ended: Session) {
