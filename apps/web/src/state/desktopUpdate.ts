@@ -7,6 +7,8 @@ import * as Stream from "effect/Stream";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Atom } from "effect/reactivity";
 
+import { stackedThreadToast, toastManager } from "../components/ui/toast";
+
 type DesktopUpdateBridge = Pick<DesktopBridge, "getUpdateState" | "onUpdateState">;
 
 const INITIAL_STATE_READ_ATTEMPT_COUNT = 3;
@@ -37,9 +39,24 @@ export function createDesktopUpdateStateAtom(getBridge: () => DesktopUpdateBridg
       }
 
       let receivedUpdate = false;
+      let previousMessage: string | null = null;
       yield* Effect.acquireRelease(
         Effect.sync(() =>
           bridge.onUpdateState((state) => {
+            if (
+              state.status === "error" &&
+              state.message?.startsWith("Fork update: ") &&
+              state.message !== previousMessage
+            ) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Fork update failed",
+                  description: state.message,
+                }),
+              );
+            }
+            previousMessage = state.message;
             receivedUpdate = true;
             Queue.offerUnsafe(queue, state);
           }),

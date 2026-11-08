@@ -1,6 +1,8 @@
 import type { DesktopUpdateState } from "@t3tools/contracts";
 
 interface ForkUpdateFiles {
+  readonly busy?: boolean;
+  readonly error?: string | undefined;
   readonly installedSha?: string | undefined;
   readonly installedTag?: string | undefined;
   readonly stagedSha?: string | undefined;
@@ -11,6 +13,8 @@ interface ForkUpdateFiles {
 
 type ForkUpdateStatus =
   | { readonly status: "nothing" }
+  | { readonly status: "busy" }
+  | { readonly status: "failed"; readonly reason: string }
   | { readonly status: "ready"; readonly tag: string }
   | { readonly status: "needs-fixing"; readonly tag: string };
 
@@ -35,6 +39,8 @@ function compareTags(left: string, right: string) {
 }
 
 export function resolveForkUpdateStatus(files: ForkUpdateFiles): ForkUpdateStatus {
+  if (files.busy) return { status: "busy" };
+  if (files.error) return { status: "failed", reason: files.error };
   const stagedSha = sha(files.stagedSha);
   const stagedTag = stableTag(files.stagedTag);
   const installedTag = stableTag(files.installedTag);
@@ -58,6 +64,22 @@ export function toDesktopUpdateState(
   base: DesktopUpdateState,
   status: ForkUpdateStatus,
 ): DesktopUpdateState {
+  if (status.status === "busy" || status.status === "failed") {
+    return {
+      ...base,
+      enabled: true,
+      status: status.status === "busy" ? "checking" : "error",
+      availableVersion: null,
+      downloadedVersion: null,
+      downloadPercent: null,
+      message:
+        status.status === "busy"
+          ? "Fork update: Building update."
+          : `Fork update: ${status.reason}`,
+      errorContext: status.status === "failed" ? "check" : null,
+      canRetry: false,
+    };
+  }
   return {
     ...base,
     enabled: true,
@@ -80,4 +102,24 @@ export function toDesktopUpdateState(
     errorContext: status.status === "needs-fixing" ? "check" : null,
     canRetry: status.status === "ready",
   };
+}
+
+export function lockIsAlive(value: string | undefined, isAlive: (pid: number) => boolean) {
+  const normalized = value?.trim();
+  if (!normalized || !/^\d+$/.test(normalized)) return false;
+  const pid = Number(normalized);
+  return Number.isSafeInteger(pid) && pid > 1 && isAlive(pid);
+}
+
+export function shouldStartBuild(starting: boolean, locked: boolean) {
+  return !starting && !locked;
+}
+
+export function lastUpdateError(log: string | undefined) {
+  let error: string | undefined;
+  for (const line of (log ?? "").split("\n")) {
+    if (/^=== .* update start /.test(line)) error = undefined;
+    if (line.startsWith("ERROR:")) error = line.slice(6).trim() || undefined;
+  }
+  return error;
 }

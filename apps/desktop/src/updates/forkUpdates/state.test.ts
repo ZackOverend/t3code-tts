@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { createInitialDesktopUpdateState } from "../updateMachine.ts";
-import { resolveForkUpdateStatus, toDesktopUpdateState } from "./state.ts";
+import {
+  resolveForkUpdateStatus,
+  toDesktopUpdateState,
+  lockIsAlive,
+  lastUpdateError,
+  shouldStartBuild,
+} from "./state.ts";
 
 const staged = { stagedSha: "a".repeat(40), stagedTag: "v0.2.0", stagedAppPresent: true };
 const base = createInitialDesktopUpdateState(
@@ -126,5 +132,40 @@ describe("fork update status", () => {
       downloadedVersion: null,
       canRetry: false,
     });
+  });
+});
+
+it("recognizes only live positive lock PIDs", () => {
+  for (const value of [undefined, "", "garbage", "0", "-1", "1", "12oops"]) {
+    expect(lockIsAlive(value, () => true)).toBe(false);
+  }
+  expect(lockIsAlive("123\n", () => true)).toBe(true);
+  expect(lockIsAlive("123", () => false)).toBe(false);
+});
+
+it("prevents a second launch while starting or locked", () => {
+  expect(shouldStartBuild(false, false)).toBe(true);
+  expect(shouldStartBuild(true, false)).toBe(false);
+  expect(shouldStartBuild(false, true)).toBe(false);
+});
+
+it("takes the last error from only the latest run", () => {
+  expect(lastUpdateError("ERROR: old\n=== today update start (DRY_RUN=1) ===\nOK")).toBeUndefined();
+  expect(lastUpdateError("ERROR: first\nERROR: Build failed\ncleanup")).toBe("Build failed");
+});
+
+it("shows busy before staged state and failures before older staged builds", () => {
+  expect(resolveForkUpdateStatus({ ...staged, busy: true, error: "failed" })).toEqual({
+    status: "busy",
+  });
+  expect(
+    toDesktopUpdateState(base, resolveForkUpdateStatus({ ...staged, error: "failed" })),
+  ).toMatchObject({
+    status: "error",
+    message: "Fork update: failed",
+    downloadedVersion: null,
+  });
+  expect(toDesktopUpdateState(base, resolveForkUpdateStatus({ busy: true }))).toMatchObject({
+    status: "checking",
   });
 });

@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -15,7 +16,14 @@ import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import type { DesktopUpdates } from "../DesktopUpdates.ts";
 import * as IpcChannels from "../../ipc/channels.ts";
 import { createInitialDesktopUpdateState } from "../updateMachine.ts";
-import { resolveForkUpdateStatus, toDesktopUpdateState } from "./state.ts";
+import {
+  resolveForkUpdateStatus,
+  toDesktopUpdateState,
+  lockIsAlive,
+  lastUpdateError,
+  shouldStartBuild,
+} from "./state.ts";
+import { launchBuild, processIsAlive } from "./launchBuild.ts";
 import { launchInstaller } from "./launchInstaller.ts";
 
 class ForkInstallerLaunchError extends Schema.TaggedError<ForkInstallerLaunchError>()(
@@ -57,6 +65,10 @@ export const make = Effect.gen(function* () {
     "latest",
   );
   const state = yield* Ref.make(toDesktopUpdateState(base, { status: "nothing" }));
+  const wake = yield* Queue.sliding<void>(1);
+  const buildPid = yield* Ref.make<number | undefined>(undefined);
+  const launchError = yield* Ref.make<string | undefined>(undefined);
+  const buildMutex = yield* Semaphore.make(1);
   const installing = yield* Ref.make(false);
   const configured = yield* Ref.make(false);
   const changes = yield* PubSub.sliding<DesktopUpdateState>(16);
@@ -78,6 +90,8 @@ export const make = Effect.gen(function* () {
   });
   const refresh = Effect.fn("ForkUpdates.refresh")(function* () {
     const files = yield* Effect.all({
+      lockPid: read("update.lock/pid"),
+      log: read("update.log"),
       installedSha: read("installed-sha"),
       installedTag: read("installed-tag"),
       stagedSha: read("staged-sha"),
@@ -95,7 +109,17 @@ export const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => false),
       ),
     });
-    const next = toDesktopUpdateState(base, resolveForkUpdateStatus(files));
+    const pid = yield* Ref.get(buildPid);
+    const busy =
+      lockIsAlive(files.lockPid, processIsAlive) || (pid !== undefined && processIsAlive(pid));
+    const next = toDesktopUpdateState(
+      base,
+      resolveForkUpdateStatus({
+        ...files,
+        busy,
+        error: (yield* Ref.get(launchError)) ?? lastUpdateError(files.log),
+      }),
+    );
     const previous = yield* Ref.get(state);
     if (next.status !== previous.status || next.message !== previous.message) yield* publish(next);
     return next;
@@ -156,15 +180,46 @@ export const make = Effect.gen(function* () {
     configure: Effect.gen(function* () {
       if (yield* Ref.getAndSet(configured, true)) return;
       yield* refresh();
-      yield* Effect.sleep("1 minute").pipe(
-        Effect.andThen(refresh()),
-        Effect.forever,
-        Effect.forkScoped,
-      );
+      yield* Effect.gen(function* () {
+        const current = yield* Ref.get(state);
+        yield* Effect.race(
+          Effect.sleep(current.status === "checking" ? "2 seconds" : "1 minute"),
+          Queue.take(wake),
+        );
+        yield* refresh();
+      }).pipe(Effect.forever, Effect.forkScoped);
     }),
     setChannel: () => refresh(),
     check: Effect.fn("ForkUpdates.check")(function* () {
-      return { checked: true, state: yield* refresh() };
+      return yield* buildMutex.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* refresh();
+          if (!shouldStartBuild(yield* Ref.get(installing), current.status === "checking")) {
+            return { checked: true, state: current };
+          }
+          const lockPid = yield* read("update.lock/pid");
+          if (lockIsAlive(lockPid, () => true) && !lockIsAlive(lockPid, processIsAlive)) {
+            yield* fs
+              .remove(environment.path.join(stateDir, "update.lock"), { recursive: true })
+              .pipe(Effect.orElseSucceed(() => undefined));
+          }
+          yield* Ref.set(launchError, undefined);
+          const result = yield* Effect.tryPromise({
+            try: () =>
+              launchBuild({ script, homeDirectory: environment.homeDirectory, stateDir, appDest }),
+            catch: () => "Could not start the fork build. Try again.",
+          }).pipe(
+            Effect.match({
+              onSuccess: (pid) => ({ pid, error: undefined }),
+              onFailure: (error) => ({ pid: undefined, error }),
+            }),
+          );
+          yield* Ref.set(buildPid, result.pid);
+          yield* Queue.offer(wake, undefined);
+          yield* Ref.set(launchError, result.error);
+          return { checked: result.pid !== undefined, state: yield* refresh() };
+        }),
+      );
     }),
     download: refresh().pipe(
       Effect.map((value) => ({ accepted: false, completed: false, state: value })),
