@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { useEffect, useRef } from "react";
+import { isVoiceModeEnabled } from "../../voiceMode/voiceModeSession";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { toastManager } from "../ui/toast";
 import { speakMessage } from "./messageSpeech";
@@ -28,7 +29,10 @@ export function createAutoplayTracker() {
   const inProgress = new Set<string>();
   const handled = new Set<string>();
   return {
-    observe(candidate: AutoplayCandidate): string | null {
+    observe(
+      candidate: AutoplayCandidate,
+      settings: { autoplay: boolean; voiceMode: boolean },
+    ): string | null {
       if (handled.has(candidate.id)) return null;
       if (candidate.streaming) {
         inProgress.add(candidate.id);
@@ -44,7 +48,7 @@ export function createAutoplayTracker() {
       // Consumed even when autoplay is off, so enabling it later never reads old responses.
       handled.add(candidate.id);
       inProgress.delete(candidate.id);
-      return copyState.text;
+      return settings.autoplay || settings.voiceMode ? copyState.text : null;
     },
   };
 }
@@ -69,13 +73,16 @@ export function useTtsAutoplay(rows: ReadonlyArray<MessagesTimelineRow>, threadK
     for (const row of rows) {
       if (row.kind === "message" && row.message.role !== "assistant") continue;
       if (row.kind !== "message" && row.kind !== "assistant-meta") continue;
-      const text = tracker.observe({
-        id: row.message.id,
-        text: row.message.text ?? null,
-        showCopyButton: row.showAssistantCopyButton,
-        streaming: row.assistantCopyStreaming,
-      });
-      if (text !== null && enabled) void speakMessage(text, notifyDaemonUnavailable);
+      const text = tracker.observe(
+        {
+          id: row.message.id,
+          text: row.message.text ?? null,
+          showCopyButton: row.showAssistantCopyButton,
+          streaming: row.assistantCopyStreaming,
+        },
+        { autoplay: enabled, voiceMode: isVoiceModeEnabled() },
+      );
+      if (text !== null) void speakMessage(text, notifyDaemonUnavailable);
     }
   }, [rows, threadKey, enabled]);
 }

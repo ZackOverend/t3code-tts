@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 
+import { isSpeechActive, subscribe as subscribePlayback } from "../components/chat/messageSpeech";
 import { isElectron } from "../env";
 import { toastManager } from "../components/ui/toast";
 import { getLocalStorageItem, setLocalStorageItem } from "../hooks/useLocalStorage";
@@ -37,6 +38,7 @@ export function getVoiceModeController(): VoiceModeController {
     transcriber: daemonTranscriber,
     persistence: localStorageVoiceModePersistence,
     phrases: readVoicePhrases,
+    isPlaybackActive: isSpeechActive,
   });
   let lastMessage: string | null = null;
   // Toasts live here, not in the toggle: an error at launch happens before any composer mounts.
@@ -52,10 +54,15 @@ export function getVoiceModeController(): VoiceModeController {
     }
     lastMessage = message;
   });
+  subscribePlayback(created.syncPlayback);
   controller = created;
   return created;
 }
 
 export function startVoiceMode(): void {
   if (isElectron) getVoiceModeController();
+}
+
+export function isVoiceModeEnabled(): boolean {
+  return isElectron && getVoiceModeController().enabled;
 }

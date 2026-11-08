@@ -5,7 +5,13 @@ import {
 
 import { parseVoicePhrase, type VoicePhrases } from "./voiceCommands";
 
-export type VoiceModePhase = "off" | "starting" | "listening" | "transcribing" | "error";
+export type VoiceModePhase =
+  | "off"
+  | "starting"
+  | "listening"
+  | "transcribing"
+  | "speaking"
+  | "error";
 
 export interface VoiceModeState {
   readonly phase: VoiceModePhase;
@@ -92,6 +98,7 @@ export interface VoiceModeDependencies {
   readonly createSpeechSource: (handlers: SpeechSourceHandlers) => SpeechSource;
   readonly transcriber: VoiceModeTranscriber;
   readonly persistence: VoiceModePersistence;
+  readonly isPlaybackActive: () => boolean;
   /** Read for every phrase, so settings changes apply mid-session. */
   readonly phrases: () => VoicePhrases;
 }
@@ -128,6 +135,22 @@ export class VoiceModeController {
     return this.current;
   }
 
+  get enabled(): boolean {
+    return this.current.phase !== "off" && this.current.phase !== "error";
+  }
+
+  syncPlayback = (): void => {
+    if (!this.enabled) return;
+    if (this.dependencies.isPlaybackActive()) {
+      if (this.current.phase === "speaking") return;
+      // Invalidate queued audio and transcripts before stopping capture, including late VAD segments.
+      this.halt();
+      this.setState({ phase: "speaking", error: null, notice: null });
+    } else if (this.current.phase === "speaking") {
+      void this.turnOn();
+    }
+  };
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -140,8 +163,12 @@ export class VoiceModeController {
   }
 
   async turnOn(): Promise<void> {
-    if (this.current.phase !== "off" && this.current.phase !== "error") return;
+    if (this.enabled && this.current.phase !== "speaking") return;
     this.dependencies.persistence.write(true);
+    if (this.dependencies.isPlaybackActive()) {
+      this.setState({ phase: "speaking", error: null, notice: null });
+      return;
+    }
     const run = ++this.runId;
     const abort = new AbortController();
     this.abort = abort;

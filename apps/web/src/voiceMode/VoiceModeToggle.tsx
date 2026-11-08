@@ -1,4 +1,4 @@
-import { LoaderCircleIcon, MicIcon, MicOffIcon } from "lucide-react";
+import { LoaderCircleIcon, MicIcon, MicOffIcon, Volume2Icon } from "lucide-react";
 import { memo, useEffect, useSyncExternalStore } from "react";
 
 import { useStableCallback } from "../hooks/useStableCallback";
@@ -17,6 +17,8 @@ function describe(state: VoiceModeState): string {
       return "Listening. Click to stop voice mode";
     case "transcribing":
       return "Transcribing. Click to stop voice mode";
+    case "speaking":
+      return "Speaking. Click to stop voice mode";
     case "error":
       return "Voice mode stopped. Click to turn it off";
   }
@@ -45,7 +47,9 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
       ? LoaderCircleIcon
       : state.phase === "error"
         ? MicOffIcon
-        : MicIcon;
+        : state.phase === "speaking"
+          ? Volume2Icon
+          : MicIcon;
   const label = describe(state);
 
   return (
@@ -54,7 +58,7 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
         render={
           <Toggle
             aria-label="Voice mode"
-            pressed={state.phase === "listening" || state.phase === "transcribing"}
+            pressed={controller.enabled}
             onPressedChange={() => controller.toggle()}
             onPointerDown={(event) => event.preventDefault()}
             size="sm"

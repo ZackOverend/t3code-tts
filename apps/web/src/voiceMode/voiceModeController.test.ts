@@ -59,6 +59,7 @@ function createHarness(
   const composer = createComposer("environment:thread", options.draft);
   let stored = options.persisted ?? false;
   let microphoneOpen = false;
+  let playbackActive = false;
   let handlers!: SpeechSourceHandlers;
   const transcripts = new Map<number, Promise<string>>();
   let phrases = options.phrases ?? DEFAULT_VOICE_PHRASES;
@@ -89,11 +90,16 @@ function createHarness(
       },
     },
     phrases: () => phrases,
+    isPlaybackActive: () => playbackActive,
   });
   if (!options.withoutComposer) controller.registerTarget(composer.target);
 
   return {
     controller,
+    setPlayback(active: boolean) {
+      playbackActive = active;
+      controller.syncPlayback();
+    },
     composer,
     get draft() {
       return composer.draft;
@@ -127,6 +133,71 @@ function createHarness(
 }
 
 describe("VoiceModeController", () => {
+  it("listens, sends, suspends capture for the reply, then listens again", async () => {
+    const h = createHarness();
+    await h.controller.turnOn();
+    h.say(1, "Hello send it");
+    await h.listening();
+    expect(h.sent).toEqual(["Hello"]);
+
+    h.setPlayback(true);
+    expect(h.controller.state.phase).toBe("speaking");
+    expect(h.microphoneOpen).toBe(false);
+    h.say(2, "The reply's own audio send it");
+    await flushMicrotasks();
+    expect(h.draft).toBe("");
+    expect(h.sent).toEqual(["Hello"]);
+    expect(h.controller.state.phase).toBe("speaking");
+
+    h.setPlayback(false);
+    await h.listening();
+    expect(h.microphoneOpen).toBe(true);
+    h.say(3, "Next question send it");
+    await h.listening();
+    expect(h.sent).toEqual(["Hello", "Next question"]);
+  });
+
+  it("stays off when playback finishes after voice mode is disabled", async () => {
+    const h = createHarness();
+    await h.controller.turnOn();
+    h.setPlayback(true);
+    h.controller.turnOff();
+    h.setPlayback(false);
+    await flushMicrotasks();
+    expect(h.controller.state.phase).toBe("off");
+    expect(h.microphoneOpen).toBe(false);
+    expect(h.stored).toBe(false);
+  });
+
+  it("drops pending transcripts and queued segments across playback", async () => {
+    const h = createHarness({ draft: "keep" });
+    await h.controller.turnOn();
+    const late = deferred<string>();
+    h.sayAfter(1, late.promise);
+    h.say(2, "queued send it");
+    h.setPlayback(true);
+    h.setPlayback(false);
+    await h.listening();
+    late.resolve("late send it");
+    await flushMicrotasks();
+    expect(h.draft).toBe("keep");
+    expect(h.sent).toEqual([]);
+    h.say(3, "new");
+    await h.listening();
+    expect(h.draft).toBe("keep new");
+  });
+
+  it("waits for existing playback before opening the microphone", async () => {
+    const h = createHarness();
+    h.setPlayback(true);
+    await h.controller.turnOn();
+    expect(h.controller.state.phase).toBe("speaking");
+    expect(h.microphoneOpen).toBe(false);
+    h.setPlayback(false);
+    await h.listening();
+    expect(h.microphoneOpen).toBe(true);
+  });
+
   it("appends each phrase to the end of the draft with sensible spacing", async () => {
     const h = createHarness({ draft: "" });
     await h.controller.turnOn();
