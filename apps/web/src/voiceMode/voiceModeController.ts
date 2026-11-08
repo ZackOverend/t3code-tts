@@ -3,6 +3,7 @@ import {
   type VoiceDraftSnapshot,
 } from "@t3tools/client-runtime/voice-input";
 
+import { isInterruptTranscript } from "./interruptTranscript";
 import { parseVoicePhrase, type VoicePhrases } from "./voiceCommands";
 
 export type VoiceModePhase =
@@ -59,6 +60,7 @@ function describeError(error: unknown): string {
 }
 
 export interface SpeechSourceHandlers {
+  readonly onSpeechStart: () => void;
   /** One finished utterance: 16 kHz mono samples. */
   readonly onSegment: (audio: Float32Array) => void;
   /** The source died after it started (device unplugged, stream ended). */
@@ -99,6 +101,8 @@ export interface VoiceModeDependencies {
   readonly transcriber: VoiceModeTranscriber;
   readonly persistence: VoiceModePersistence;
   readonly isPlaybackActive: () => boolean;
+  readonly getPlaybackText: () => string | null;
+  readonly stopPlayback: () => void;
   /** Read for every phrase, so settings changes apply mid-session. */
   readonly phrases: () => VoicePhrases;
 }
@@ -113,8 +117,9 @@ export class VoiceModeController {
   private drainingRun: number | null = null;
   private source: SpeechSource | null = null;
   private abort: AbortController | null = null;
-  private queue: Float32Array[] = [];
+  private queue: { audio: Float32Array; playbackText: string | null }[] = [];
   private targets: ComposerTarget[] = [];
+  private segmentPlaybackText: string | null = null;
 
   constructor(private readonly dependencies: VoiceModeDependencies) {
     if (dependencies.persistence.read()) void this.turnOn();
@@ -140,15 +145,12 @@ export class VoiceModeController {
   }
 
   syncPlayback = (): void => {
-    if (!this.enabled) return;
-    if (this.dependencies.isPlaybackActive()) {
-      if (this.current.phase === "speaking") return;
-      // Invalidate queued audio and transcripts before stopping capture, including late VAD segments.
-      this.halt();
-      this.setState({ phase: "speaking", error: null, notice: null });
-    } else if (this.current.phase === "speaking") {
-      void this.turnOn();
-    }
+    if (!this.enabled || this.current.phase === "starting" || this.drainingRun === this.runId)
+      return;
+    this.setState({
+      ...this.current,
+      phase: this.dependencies.isPlaybackActive() ? "speaking" : "listening",
+    });
   };
 
   subscribe = (listener: () => void): (() => void) => {
@@ -163,17 +165,16 @@ export class VoiceModeController {
   }
 
   async turnOn(): Promise<void> {
-    if (this.enabled && this.current.phase !== "speaking") return;
+    if (this.enabled) return;
     this.dependencies.persistence.write(true);
-    if (this.dependencies.isPlaybackActive()) {
-      this.setState({ phase: "speaking", error: null, notice: null });
-      return;
-    }
     const run = ++this.runId;
     const abort = new AbortController();
     this.abort = abort;
     this.setState({ phase: "starting", error: null, notice: null });
     const source = this.dependencies.createSpeechSource({
+      onSpeechStart: () => {
+        if (run === this.runId) this.segmentPlaybackText = this.dependencies.getPlaybackText();
+      },
       onSegment: (audio) => this.enqueue(run, audio),
       onError: (error) => this.fail(run, error),
     });
@@ -191,7 +192,11 @@ export class VoiceModeController {
       void source.stop().catch(() => undefined);
       return;
     }
-    this.setState({ phase: "listening", error: null, notice: null });
+    this.setState({
+      phase: this.dependencies.isPlaybackActive() ? "speaking" : "listening",
+      error: null,
+      notice: null,
+    });
   }
 
   turnOff(): void {
@@ -210,6 +215,7 @@ export class VoiceModeController {
   private halt(): void {
     this.runId += 1;
     this.queue = [];
+    this.segmentPlaybackText = null;
     this.abort?.abort();
     this.abort = null;
     const source = this.source;
@@ -219,7 +225,12 @@ export class VoiceModeController {
 
   private enqueue(run: number, audio: Float32Array): void {
     if (run !== this.runId || this.current.phase === "starting") return;
-    this.queue.push(audio);
+    // Keep the reply reference through VAD hangover, transcription and queue delays.
+    this.queue.push({
+      audio,
+      playbackText: this.segmentPlaybackText ?? this.dependencies.getPlaybackText(),
+    });
+    this.segmentPlaybackText = null;
     void this.drain(run);
   }
 
@@ -228,13 +239,16 @@ export class VoiceModeController {
     if (this.drainingRun === run) return;
     this.drainingRun = run;
     try {
-      for (let audio = this.queue.shift(); audio; audio = this.queue.shift()) {
+      for (let segment = this.queue.shift(); segment; segment = this.queue.shift()) {
         if (run !== this.runId) return;
         this.setState({ ...this.current, phase: "transcribing" });
-        await this.transcribeAndAppend(run, audio);
+        await this.transcribeAndAppend(run, segment.audio, segment.playbackText);
         if (run !== this.runId) return;
       }
-      this.setState({ ...this.current, phase: "listening" });
+      this.setState({
+        ...this.current,
+        phase: this.dependencies.isPlaybackActive() ? "speaking" : "listening",
+      });
     } catch (error) {
       this.fail(run, error);
     } finally {
@@ -242,7 +256,11 @@ export class VoiceModeController {
     }
   }
 
-  private async transcribeAndAppend(run: number, audio: Float32Array): Promise<void> {
+  private async transcribeAndAppend(
+    run: number,
+    audio: Float32Array,
+    playbackText: string | null,
+  ): Promise<void> {
     const before = this.target;
     const abort = this.abort;
     if (!abort) return;
@@ -255,7 +273,8 @@ export class VoiceModeController {
       revision: 0,
     };
     const transcript = await this.dependencies.transcriber.transcribe(audio, abort.signal);
-    if (run !== this.runId || transcript.trim() === "") return;
+    if (run !== this.runId || !isInterruptTranscript(transcript, playbackText)) return;
+    if (this.dependencies.isPlaybackActive()) this.dependencies.stopPlayback();
     const target = this.target;
     if (!captured || !target) {
       this.setState({ ...this.current, notice: NO_COMPOSER_NOTICE });

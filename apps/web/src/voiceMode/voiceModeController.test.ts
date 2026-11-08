@@ -60,6 +60,7 @@ function createHarness(
   let stored = options.persisted ?? false;
   let microphoneOpen = false;
   let playbackActive = false;
+  let playbackText = "";
   let handlers!: SpeechSourceHandlers;
   const transcripts = new Map<number, Promise<string>>();
   let phrases = options.phrases ?? DEFAULT_VOICE_PHRASES;
@@ -91,12 +92,21 @@ function createHarness(
     },
     phrases: () => phrases,
     isPlaybackActive: () => playbackActive,
+    getPlaybackText: () => (playbackActive ? playbackText : null),
+    stopPlayback: () => {
+      playbackActive = false;
+      controller.syncPlayback();
+    },
   });
   if (!options.withoutComposer) controller.registerTarget(composer.target);
 
   return {
     controller,
-    setPlayback(active: boolean) {
+    get playbackActive() {
+      return playbackActive;
+    },
+    setPlayback(active: boolean, text = "The reply’s own audio send it") {
+      playbackText = text;
       playbackActive = active;
       controller.syncPlayback();
     },
@@ -127,13 +137,88 @@ function createHarness(
       transcripts.set(id, transcript);
       handlers.onSegment(utterance(id));
     },
+    startSpeech: () => handlers.onSpeechStart(),
     sourceFails: (error: unknown) => handlers.onError(error),
     listening: () => until(controller, (state) => state.phase === "listening"),
   };
 }
 
 describe("VoiceModeController", () => {
-  it("listens, sends, suspends capture for the reply, then listens again", async () => {
+  it("stops playback only after words are transcribed and appends them", async () => {
+    const h = createHarness({ draft: "Next:" });
+    await h.controller.turnOn();
+    h.setPlayback(true);
+    const transcript = deferred<string>();
+    h.sayAfter(1, transcript.promise);
+    expect(h.playbackActive).toBe(true);
+    expect(h.draft).toBe("Next:");
+    transcript.resolve("Please change the plan");
+    await flushMicrotasks();
+    expect(h.playbackActive).toBe(false);
+    expect(h.draft).toBe("Next: Please change the plan");
+    expect(h.controller.state.phase).toBe("listening");
+    expect(h.microphoneOpen).toBe(true);
+  });
+
+  it.each(["", "   ", "...", "♪", "THE plan is ready!", "plan is ready"])(
+    "keeps playback and draft unchanged for noise or echo: %j",
+    async (transcript) => {
+      const h = createHarness({ draft: "keep" });
+      await h.controller.turnOn();
+      h.setPlayback(true, "The **plan** is ready.");
+      h.say(1, transcript);
+      await flushMicrotasks();
+      expect(h.playbackActive).toBe(true);
+      expect(h.draft).toBe("keep");
+      expect(h.sent).toEqual([]);
+      expect(h.controller.state.phase).toBe("speaking");
+    },
+  );
+
+  it("rejects echo whose transcription arrives after playback ends", async () => {
+    const h = createHarness({ draft: "keep" });
+    await h.controller.turnOn();
+    h.setPlayback(true, "The plan is ready");
+    const transcript = deferred<string>();
+    h.sayAfter(1, transcript.promise);
+    h.setPlayback(false);
+    transcript.resolve("the plan is ready");
+    await flushMicrotasks();
+    expect(h.playbackActive).toBe(false);
+    expect(h.draft).toBe("keep");
+  });
+
+  it("rejects an echo segment that ends after the reply finishes", async () => {
+    const h = createHarness({ draft: "keep" });
+    await h.controller.turnOn();
+    h.setPlayback(true, "The plan is ready");
+    h.startSpeech();
+    h.setPlayback(false);
+    h.say(1, "the plan is ready");
+    await flushMicrotasks();
+    expect(h.draft).toBe("keep");
+    expect(h.playbackActive).toBe(false);
+    h.startSpeech();
+    h.say(2, "the plan is ready");
+    await h.listening();
+    expect(h.draft).toBe("keep the plan is ready");
+  });
+
+  it.each([
+    { words: "Change the plan send it", draft: "", sent: ["keep Change the plan"] },
+    { words: "scratch that", draft: "", sent: [] },
+  ])("handles interrupt command $words", async ({ words, draft, sent }) => {
+    const h = createHarness({ draft: "keep" });
+    await h.controller.turnOn();
+    h.setPlayback(true);
+    h.say(1, words);
+    await flushMicrotasks();
+    expect(h.playbackActive).toBe(false);
+    expect(h.draft).toBe(draft);
+    expect(h.sent).toEqual(sent);
+  });
+
+  it("listens through playback and rejects the reply’s own voice", async () => {
     const h = createHarness();
     await h.controller.turnOn();
     h.say(1, "Hello send it");
@@ -142,7 +227,7 @@ describe("VoiceModeController", () => {
 
     h.setPlayback(true);
     expect(h.controller.state.phase).toBe("speaking");
-    expect(h.microphoneOpen).toBe(false);
+    expect(h.microphoneOpen).toBe(true);
     h.say(2, "The reply's own audio send it");
     await flushMicrotasks();
     expect(h.draft).toBe("");
@@ -169,7 +254,7 @@ describe("VoiceModeController", () => {
     expect(h.stored).toBe(false);
   });
 
-  it("drops pending transcripts and queued segments across playback", async () => {
+  it("preserves pending user speech across playback", async () => {
     const h = createHarness({ draft: "keep" });
     await h.controller.turnOn();
     const late = deferred<string>();
@@ -177,22 +262,21 @@ describe("VoiceModeController", () => {
     h.say(2, "queued send it");
     h.setPlayback(true);
     h.setPlayback(false);
-    await h.listening();
     late.resolve("late send it");
     await flushMicrotasks();
-    expect(h.draft).toBe("keep");
-    expect(h.sent).toEqual([]);
+    expect(h.draft).toBe("");
+    expect(h.sent).toEqual(["keep late", "queued"]);
     h.say(3, "new");
     await h.listening();
-    expect(h.draft).toBe("keep new");
+    expect(h.draft).toBe("new");
   });
 
-  it("waits for existing playback before opening the microphone", async () => {
+  it("opens the microphone during existing playback", async () => {
     const h = createHarness();
     h.setPlayback(true);
     await h.controller.turnOn();
     expect(h.controller.state.phase).toBe("speaking");
-    expect(h.microphoneOpen).toBe(false);
+    expect(h.microphoneOpen).toBe(true);
     h.setPlayback(false);
     await h.listening();
     expect(h.microphoneOpen).toBe(true);

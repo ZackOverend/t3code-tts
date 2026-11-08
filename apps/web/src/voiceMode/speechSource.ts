@@ -77,6 +77,7 @@ export function createVadSpeechSource(handlers: SpeechSourceHandlers): SpeechSou
               throw microphone.failure;
             }
           },
+          onSpeechStart: handlers.onSpeechStart,
           onSpeechEnd: (audio) => handlers.onSegment(audio),
         });
         vad = created;

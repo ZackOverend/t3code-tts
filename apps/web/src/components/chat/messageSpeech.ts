@@ -11,6 +11,7 @@ export type Playback = { id: string | null; state: PlaybackState };
 // the browser's echo cancellation can account for it. One module store keeps a single playback
 // shared by every mounted button and by a future voice-mode controller.
 type Session = {
+  text: string;
   context: AudioContext | null;
   abort: AbortController;
   sources: Set<AudioBufferSourceNode>;
@@ -28,6 +29,10 @@ const listeners = new Set<() => void>();
 
 export function getPlayback() {
   return playback;
+}
+
+export function getSpeechText(): string | null {
+  return session?.text ?? null;
 }
 
 export function getDaemonReachable() {
@@ -168,6 +173,7 @@ async function play(current: Session, body: object, onError?: () => void) {
 function speak(text: string, id: string, md: boolean, onError?: () => void) {
   stopSpeech();
   const current: Session = {
+    text,
     context: null,
     abort: new AbortController(),
     sources: new Set(),
