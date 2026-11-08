@@ -1,9 +1,10 @@
 import { LoaderCircleIcon, MicIcon, MicOffIcon, Volume2Icon } from "lucide-react";
-import { memo, useEffect, useSyncExternalStore } from "react";
+import { memo, useEffect, useState, useSyncExternalStore } from "react";
 
 import { useStableCallback } from "../hooks/useStableCallback";
 import { Toggle } from "../components/ui/toggle";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
+import { Popover, PopoverPopup, PopoverTrigger } from "../components/ui/popover";
+import { AutoplaySwitch } from "../components/chat/MessageSpeakButton";
 import type { VoiceModeState } from "./voiceModeController";
 import { getVoiceModeController } from "./voiceModeSession";
 
@@ -41,6 +42,7 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
   const readRunningTurnId = useStableCallback(() => props.runningTurnId);
   const interrupt = useStableCallback(() => props.interrupt());
   const state = useSyncExternalStore(controller.subscribe, () => controller.state);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Registers this composer as the place speech goes while it is showing; the controller outlives it, so unmounting must unregister.
   useEffect(
@@ -76,14 +78,18 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
           {state.preview}
         </span>
       ) : null}
-      <Tooltip>
-        <TooltipTrigger
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        <PopoverTrigger
+          openOnHover
           render={
             <Toggle
               aria-label="Voice mode"
               pressed={state.phase !== "off" && state.phase !== "error"}
               onPressedChange={() => controller.toggle()}
               onPointerDown={(event) => event.preventDefault()}
+              onFocus={(event) => {
+                if (event.currentTarget.matches(":focus-visible")) setMenuOpen(true);
+              }}
               size="sm"
               variant="ghost"
             />
@@ -98,9 +104,14 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
                 : undefined
             }
           />
-        </TooltipTrigger>
-        <TooltipPopup>{label}</TooltipPopup>
-      </Tooltip>
+        </PopoverTrigger>
+        <PopoverPopup align="end" initialFocus={false} padding="compact" side="top">
+          <div className="flex w-56 flex-col gap-1.5">
+            <p className="text-muted-foreground text-xs">{label}</p>
+            <AutoplaySwitch label="Read replies aloud" />
+          </div>
+        </PopoverPopup>
+      </Popover>
     </>
   );
 });

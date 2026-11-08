@@ -1,6 +1,5 @@
 import * as Schema from "effect/Schema";
 import { useEffect, useRef } from "react";
-import { isVoiceModeEnabled } from "../../voiceMode/voiceModeSession";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { toastManager } from "../ui/toast";
 import { speakMessage } from "./messageSpeech";
@@ -29,10 +28,7 @@ export function createAutoplayTracker() {
   const inProgress = new Set<string>();
   const handled = new Set<string>();
   return {
-    observe(
-      candidate: AutoplayCandidate,
-      settings: { autoplay: boolean; voiceMode: boolean },
-    ): string | null {
+    observe(candidate: AutoplayCandidate, settings: { autoplay: boolean }): string | null {
       if (handled.has(candidate.id)) return null;
       if (candidate.streaming) {
         inProgress.add(candidate.id);
@@ -48,7 +44,7 @@ export function createAutoplayTracker() {
       // Consumed even when autoplay is off, so enabling it later never reads old responses.
       handled.add(candidate.id);
       inProgress.delete(candidate.id);
-      return settings.autoplay || settings.voiceMode ? copyState.text : null;
+      return settings.autoplay ? copyState.text : null;
     },
   };
 }
@@ -80,7 +76,7 @@ export function useTtsAutoplay(rows: ReadonlyArray<MessagesTimelineRow>, threadK
           showCopyButton: row.showAssistantCopyButton,
           streaming: row.assistantCopyStreaming,
         },
-        { autoplay: enabled, voiceMode: isVoiceModeEnabled() },
+        { autoplay: enabled },
       );
       if (text !== null) void speakMessage(text, notifyDaemonUnavailable);
     }

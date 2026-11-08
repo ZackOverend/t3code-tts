@@ -14,7 +14,6 @@ import {
   speakMessage,
   subscribe,
 } from "./messageSpeech";
-import { isVoiceModeEnabled, subscribeVoiceMode } from "../../voiceMode/voiceModeSession";
 import { useTtsAutoplaySetting } from "./ttsAutoplay";
 
 export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { text: string }) {
@@ -64,24 +63,20 @@ export const MessageSpeakButton = memo(function MessageSpeakButton({ text }: { t
         <Icon className="size-3" />
       </PopoverTrigger>
       <PopoverPopup align="start" initialFocus={false} padding="compact" side="top">
-        <AutoplayMenu />
+        <div className="w-48">
+          <AutoplaySwitch label="Autoplay" />
+        </div>
       </PopoverPopup>
     </Popover>
   );
 });
 
-function AutoplayMenu() {
+export function AutoplaySwitch({ label }: { label: string }) {
   const [autoplay, setAutoplay] = useTtsAutoplaySetting();
-  const voiceMode = useSyncExternalStore(subscribeVoiceMode, isVoiceModeEnabled);
   return (
-    <div className="flex w-48 flex-col gap-1.5">
-      <Label className="justify-between">
-        Autoplay
-        <Switch checked={autoplay} onCheckedChange={setAutoplay} size="sm" />
-      </Label>
-      {voiceMode ? (
-        <p className="text-muted-foreground text-xs">Voice mode reads replies aloud anyway.</p>
-      ) : null}
-    </div>
+    <Label className="justify-between">
+      {label}
+      <Switch checked={autoplay} onCheckedChange={setAutoplay} size="sm" />
+    </Label>
   );
 }
