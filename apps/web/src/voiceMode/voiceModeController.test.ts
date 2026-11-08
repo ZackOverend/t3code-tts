@@ -52,6 +52,7 @@ function createHarness(
     persisted?: boolean;
     withoutComposer?: boolean;
     startMicrophone?: () => Promise<void>;
+    stopMicrophone?: () => Promise<void>;
     check?: () => Promise<void>;
     phrases?: VoicePhrases;
   } = {},
@@ -59,26 +60,29 @@ function createHarness(
   const composer = createComposer("environment:thread", options.draft);
   let stored = options.persisted ?? false;
   let microphoneOpen = false;
+  let microphoneStarts = 0;
   let playbackActive = false;
   let playbackText = "";
   let handlers!: SpeechSourceHandlers;
   const transcripts = new Map<number, Promise<string>>();
   let phrases = options.phrases ?? DEFAULT_VOICE_PHRASES;
 
-  const source: SpeechSource = {
+  const createSource = (): SpeechSource => ({
     start: async () => {
+      microphoneStarts += 1;
       await options.startMicrophone?.();
       microphoneOpen = true;
     },
     stop: async () => {
+      if (options.stopMicrophone) await options.stopMicrophone();
       microphoneOpen = false;
     },
-  };
+  });
 
   const controller = new VoiceModeController({
     createSpeechSource: (next) => {
       handlers = next;
-      return source;
+      return createSource();
     },
     transcriber: {
       check: async () => options.check?.(),
@@ -119,6 +123,9 @@ function createHarness(
     },
     get stored() {
       return stored;
+    },
+    get microphoneStarts() {
+      return microphoneStarts;
     },
     get microphoneOpen() {
       return microphoneOpen;
@@ -262,6 +269,7 @@ describe("VoiceModeController", () => {
     h.say(2, "queued send it");
     h.setPlayback(true);
     h.setPlayback(false);
+    expect(h.controller.state.phase).toBe("transcribing");
     late.resolve("late send it");
     await flushMicrotasks();
     expect(h.draft).toBe("");
@@ -397,19 +405,87 @@ describe("VoiceModeController", () => {
     expect(h.controller.state.phase).toBe("off");
     expect(h.microphoneOpen).toBe(false);
     expect(h.draft).toBe("stay");
+
+    await h.controller.turnOn();
+    const old = deferred<string>();
+    h.sayAfter(2, old.promise);
+    h.controller.turnOff();
+    await h.controller.turnOn();
+    const current = deferred<string>();
+    h.sayAfter(3, current.promise);
+    old.resolve("stale send it");
+    await flushMicrotasks();
+    expect(h.controller.state.phase).toBe("transcribing");
+    expect(h.draft).toBe("stay");
+    expect(h.sent).toEqual([]);
+    current.resolve("fresh");
+    await h.listening();
+    expect(h.draft).toBe("stay fresh");
   });
 
   it("closes a microphone that finished opening after voice mode was turned off", async () => {
     const opening = deferred<void>();
-    const h = createHarness({ startMicrophone: () => opening.promise });
+    const entered = deferred<void>();
+    const h = createHarness({
+      startMicrophone: () => {
+        entered.resolve();
+        return opening.promise;
+      },
+    });
     const started = h.controller.turnOn();
+    await entered.promise;
 
     h.controller.turnOff();
     opening.resolve();
     await started;
+    await flushMicrotasks();
 
     expect(h.controller.state.phase).toBe("off");
     expect(h.microphoneOpen).toBe(false);
+  });
+
+  it("waits for microphone teardown before restarting", async () => {
+    const stopped = deferred<void>();
+    const h = createHarness({ stopMicrophone: () => stopped.promise });
+    await h.controller.turnOn();
+    h.controller.toggle();
+    h.controller.toggle();
+    await flushMicrotasks();
+
+    expect(h.controller.state.phase).toBe("starting");
+    expect(h.microphoneStarts).toBe(1);
+    stopped.resolve();
+    await h.listening();
+    expect(h.microphoneStarts).toBe(2);
+    expect(h.microphoneOpen).toBe(true);
+  });
+
+  it("finishes a cancelled microphone start before opening its replacement", async () => {
+    const opening = deferred<void>();
+    const entered = deferred<void>();
+    const h = createHarness({
+      startMicrophone: () => {
+        entered.resolve();
+        return opening.promise;
+      },
+    });
+    const first = h.controller.turnOn();
+    await entered.promise;
+    await h.controller.turnOn();
+    h.setPlayback(true);
+    h.setPlayback(false);
+    expect(h.controller.state.phase).toBe("starting");
+    expect(h.microphoneStarts).toBe(1);
+    h.controller.toggle();
+    h.controller.toggle();
+    await flushMicrotasks();
+
+    expect(h.microphoneStarts).toBe(1);
+    opening.resolve();
+    await first;
+    await h.listening();
+    expect(h.microphoneStarts).toBe(2);
+    expect(h.microphoneOpen).toBe(true);
   });
 
   it("reports denied microphone access and can be turned on again", async () => {
@@ -426,7 +502,10 @@ describe("VoiceModeController", () => {
     expect(h.microphoneOpen).toBe(false);
 
     denied = false;
-    await h.controller.turnOn();
+    expect(h.controller.enabled).toBe(false);
+    h.controller.toggle();
+    expect(h.controller.state.phase).toBe("starting");
+    await h.listening();
     expect(h.controller.state).toEqual({ phase: "listening", error: null, notice: null });
   });
 
@@ -769,20 +848,24 @@ describe("VoiceModeController", () => {
       expect(h.stored).toBe(false);
     });
 
-    it("keeps a remembered on after a failed start, and the toggle then turns it off", async () => {
+    it("retries a remembered on after a failed start with one toggle click", async () => {
+      let unavailable = true;
       const h = createHarness({
         persisted: true,
         check: async () => {
-          throw new VoiceModeError("daemon-unreachable");
+          if (unavailable) throw new VoiceModeError("daemon-unreachable");
         },
       });
       await until(h.controller, (state) => state.phase === "error");
 
       expect(h.stored).toBe(true);
 
+      unavailable = false;
       h.controller.toggle();
-      expect(h.controller.state.phase).toBe("off");
-      expect(h.stored).toBe(false);
+      expect(h.controller.state.phase).toBe("starting");
+      await h.listening();
+      expect(h.microphoneOpen).toBe(true);
+      expect(h.stored).toBe(true);
     });
   });
 

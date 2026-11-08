@@ -20,7 +20,7 @@ function describe(state: VoiceModeState): string {
     case "speaking":
       return "Speaking. Click to stop voice mode";
     case "error":
-      return "Voice mode stopped. Click to turn it off";
+      return "Voice mode stopped. Click to retry";
   }
 }
 
@@ -58,7 +58,7 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
         render={
           <Toggle
             aria-label="Voice mode"
-            pressed={controller.enabled}
+            pressed={state.phase !== "off" && state.phase !== "error"}
             onPressedChange={() => controller.toggle()}
             onPointerDown={(event) => event.preventDefault()}
             size="sm"

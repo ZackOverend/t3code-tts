@@ -116,6 +116,8 @@ export class VoiceModeController {
   private runId = 0;
   private drainingRun: number | null = null;
   private source: SpeechSource | null = null;
+  private sourceStart: Promise<void> | null = null;
+  private sourceCleanup: Promise<void> = Promise.resolve();
   private abort: AbortController | null = null;
   private queue: { audio: Float32Array; playbackText: string | null }[] = [];
   private targets: ComposerTarget[] = [];
@@ -158,10 +160,9 @@ export class VoiceModeController {
     return () => this.listeners.delete(listener);
   };
 
-  // A stopped session (error) can only be switched off from the toggle, which also forgets the choice.
   toggle(): void {
-    if (this.current.phase === "off") void this.turnOn();
-    else this.turnOff();
+    if (this.enabled) this.turnOff();
+    else void this.turnOn();
   }
 
   async turnOn(): Promise<void> {
@@ -171,27 +172,27 @@ export class VoiceModeController {
     const abort = new AbortController();
     this.abort = abort;
     this.setState({ phase: "starting", error: null, notice: null });
-    const source = this.dependencies.createSpeechSource({
-      onSpeechStart: () => {
-        if (run === this.runId) this.segmentPlaybackText = this.dependencies.getPlaybackText();
-      },
-      onSegment: (audio) => this.enqueue(run, audio),
-      onError: (error) => this.fail(run, error),
-    });
-    this.source = source;
     try {
+      await this.sourceCleanup;
+      if (run !== this.runId) return;
       await this.dependencies.transcriber.check(abort.signal);
       if (run !== this.runId) return;
-      await source.start();
+      const source = this.dependencies.createSpeechSource({
+        onSpeechStart: () => {
+          if (run === this.runId) this.segmentPlaybackText = this.dependencies.getPlaybackText();
+        },
+        onSegment: (audio) => this.enqueue(run, audio),
+        onError: (error) => this.fail(run, error),
+      });
+      this.source = source;
+      this.sourceStart = source.start();
+      await this.sourceStart;
     } catch (error) {
       this.fail(run, error);
       return;
     }
-    if (run !== this.runId) {
-      // Turned off while the microphone was opening.
-      void source.stop().catch(() => undefined);
-      return;
-    }
+    if (run !== this.runId) return;
+    this.sourceStart = null;
     this.setState({
       phase: this.dependencies.isPlaybackActive() ? "speaking" : "listening",
       error: null,
@@ -220,7 +221,19 @@ export class VoiceModeController {
     this.abort = null;
     const source = this.source;
     this.source = null;
-    void source?.stop().catch(() => undefined);
+    const starting = this.sourceStart;
+    this.sourceStart = null;
+    if (source) {
+      const stopped = source.stop().catch(() => undefined);
+      this.sourceCleanup = Promise.all([
+        this.sourceCleanup,
+        stopped,
+        starting?.catch(() => undefined),
+      ]).then(async () => {
+        // A cancelled start can still open the microphone after the first stop.
+        if (starting) await source.stop().catch(() => undefined);
+      });
+    }
   }
 
   private enqueue(run: number, audio: Float32Array): void {
