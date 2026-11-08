@@ -48,7 +48,6 @@ import {
   useUpdateEverythingRun,
 } from "./updateEverythingRun";
 import { type ReportLocalUpdateError, useUpdateEverything } from "./useUpdateEverything";
-import { ForkUpdatePill } from "./forkUpdates/ForkUpdatePill";
 
 type SidebarUpdatePopoverChangeDetails = Parameters<
   NonNullable<ComponentProps<typeof Popover>["onOpenChange"]>
@@ -193,7 +192,7 @@ export async function installLocalUpdate(
 }
 
 export function SidebarUpdatePill() {
-  return <ForkUpdatePill fallback={<SidebarUpdateControl />} />;
+  return <SidebarUpdateControl />;
 }
 
 function SidebarUpdateControl() {
