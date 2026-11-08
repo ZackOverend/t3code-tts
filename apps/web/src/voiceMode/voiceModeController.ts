@@ -16,7 +16,7 @@ export type VoiceModePhase =
 
 export interface VoiceModeState {
   readonly phase: VoiceModePhase;
-  readonly pauseRemaining?: number;
+  readonly pauseRemaining?: number | undefined;
   /** Why voice mode turned itself off; set only in the "error" phase. */
   readonly error: string | null;
   /** A phrase that was dropped while voice mode kept running. */
