@@ -29,15 +29,29 @@ function createComposer(key: string, draft = "") {
     key,
     draft,
     sent: [] as string[],
+    runningTurnId: null as string | null,
+    interrupted: [] as string[],
+    draftAtInterrupt: [] as string[],
+    get turnRunning(): boolean {
+      return (
+        composer.runningTurnId !== null && !composer.interrupted.includes(composer.runningTurnId)
+      );
+    },
     target: {
       key,
       readDraft: () => composer.draft,
+      readRunningTurnId: () => composer.runningTurnId,
+      interrupt: () => {
+        composer.interrupted.push(composer.runningTurnId!);
+        composer.draftAtInterrupt.push(composer.draft);
+      },
       commitDraft: (text: string) => {
         composer.draft = text;
         return true;
       },
       // Like a typed send: the message goes out and the draft empties.
-      submit: () => {
+      submit: (replaceRunningTurn?: boolean) => {
+        if (replaceRunningTurn) composer.runningTurnId = null;
         composer.sent.push(composer.draft);
         composer.draft = "";
       },
@@ -151,6 +165,85 @@ function createHarness(
 }
 
 describe("VoiceModeController", () => {
+  it("interrupts a running turn once before appending, then sends the replacement", async () => {
+    const h = createHarness({ draft: "Next:" });
+    h.composer.runningTurnId = "turn-1";
+    await h.controller.turnOn();
+    h.say(1, "Change the plan");
+    await h.listening();
+    expect(h.composer.interrupted).toEqual(["turn-1"]);
+    expect(h.composer.draftAtInterrupt).toEqual(["Next:"]);
+    expect(h.composer.turnRunning).toBe(false);
+    expect(h.draft).toBe("Next: Change the plan");
+    h.say(2, "Use TypeScript send it");
+    await h.listening();
+    expect(h.composer.interrupted).toEqual(["turn-1"]);
+    expect(h.sent).toEqual(["Next: Change the plan Use TypeScript"]);
+    expect(h.draft).toBe("");
+    expect(h.composer.runningTurnId).toBeNull();
+    h.composer.runningTurnId = "turn-2";
+    h.say(3, "Actually use Rust send it");
+    await h.listening();
+    expect(h.composer.interrupted).toEqual(["turn-1", "turn-2"]);
+    expect(h.sent).toEqual(["Next: Change the plan Use TypeScript", "Actually use Rust"]);
+  });
+
+  it.each([
+    { words: "", initial: "keep", running: true, draft: "keep", interrupts: 0, sent: [] },
+    { words: "   ", initial: "keep", running: true, draft: "keep", interrupts: 0, sent: [] },
+    { words: "...", initial: "keep", running: true, draft: "keep", interrupts: 0, sent: [] },
+    { words: "scratch that", initial: "keep", running: true, draft: "", interrupts: 0, sent: [] },
+    { words: "send it", initial: "", running: true, draft: "", interrupts: 0, sent: [] },
+    { words: "send it", initial: "keep", running: true, draft: "", interrupts: 1, sent: ["keep"] },
+    {
+      words: "New plan send it",
+      initial: "",
+      running: true,
+      draft: "",
+      interrupts: 1,
+      sent: ["New plan"],
+    },
+    { words: "New plan", initial: "", running: false, draft: "New plan", interrupts: 0, sent: [] },
+  ])(
+    "handles $words with running=$running and draft=$initial",
+    async ({ words, initial, running, draft, interrupts, sent }) => {
+      const h = createHarness({ draft: initial });
+      h.composer.runningTurnId = running ? "turn-1" : null;
+      await h.controller.turnOn();
+      h.say(1, words);
+      await h.listening();
+      expect(h.composer.interrupted).toHaveLength(interrupts);
+      expect(h.composer.runningTurnId).toBe(running && sent.length === 0 ? "turn-1" : null);
+      expect(h.draft).toBe(draft);
+      expect(h.sent).toEqual(sent);
+    },
+  );
+
+  it.each(["send", "edit", "switch", "off"])(
+    "waits for Stop before handling the draft: %s",
+    async (action) => {
+      const h = createHarness();
+      const stopped = deferred<void>();
+      h.composer.runningTurnId = "turn-1";
+      h.controller.registerTarget({ ...h.composer.target, interrupt: () => stopped.promise });
+      await h.controller.turnOn();
+      h.say(1, "New plan send it");
+      await flushMicrotasks();
+      expect(h.draft).toBe("");
+      expect(h.sent).toEqual([]);
+      if (action === "edit") h.type("typed meanwhile");
+      const other = createComposer("another-thread");
+      if (action === "switch") h.controller.registerTarget(other.target);
+      if (action === "off") h.controller.turnOff();
+      stopped.resolve();
+      await flushMicrotasks();
+      expect(h.sent).toEqual(action === "send" ? ["New plan"] : []);
+      expect(h.draft).toBe(action === "edit" ? "typed meanwhile" : "");
+      expect(other.draft).toBe("");
+      expect(other.sent).toEqual([]);
+    },
+  );
+
   it("stops playback only after words are transcribed and appends them", async () => {
     const h = createHarness({ draft: "Next:" });
     await h.controller.turnOn();
@@ -172,6 +265,7 @@ describe("VoiceModeController", () => {
     async (transcript) => {
       const h = createHarness({ draft: "keep" });
       await h.controller.turnOn();
+      h.composer.runningTurnId = "turn-1";
       h.setPlayback(true, "The **plan** is ready.");
       h.say(1, transcript);
       await flushMicrotasks();
@@ -179,6 +273,8 @@ describe("VoiceModeController", () => {
       expect(h.draft).toBe("keep");
       expect(h.sent).toEqual([]);
       expect(h.controller.state.phase).toBe("speaking");
+      expect(h.composer.interrupted).toEqual([]);
+      expect(h.composer.runningTurnId).toBe("turn-1");
     },
   );
 

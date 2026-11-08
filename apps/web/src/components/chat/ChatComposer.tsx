@@ -469,7 +469,7 @@ export interface ChatComposerProps {
     submissionIntent?: ComposerSubmissionIntent,
   ) => void;
   onResume: () => void;
-  onInterrupt: () => void;
+  onInterrupt: () => void | Promise<void>;
   onImplementPlanInNewThread: () => void;
   onSelectActivePendingUserInputOption: (questionId: string, optionValue: string) => void;
   onAdvanceActivePendingUserInput: () => void;
@@ -3508,7 +3508,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           focusEditorAfterReplace: false,
                         })
                       }
-                      submit={submitCitationAndSendStable}
+                      runningTurnId={
+                        phase === "running" && canOperateThread && canInterrupt
+                          ? (activeThread?.runtime?.activeRunId ?? null)
+                          : null
+                      }
+                      interrupt={onInterrupt}
+                      submit={(replaceRunningTurn) =>
+                        replaceRunningTurn
+                          ? submitComposer(undefined, "restart")
+                          : submitCitationAndSendStable()
+                      }
                     />
                   ) : null}
                   <ComposerFooterPrimaryActions

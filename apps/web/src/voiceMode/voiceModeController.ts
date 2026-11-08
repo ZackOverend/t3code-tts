@@ -88,7 +88,9 @@ export interface ComposerTarget {
   /** Replaces the whole draft. Returns false when the composer refused the edit. */
   readonly commitDraft: (text: string) => boolean;
   /** The composer's own send, as if the Send button was pressed. */
-  readonly submit: () => void;
+  readonly submit: (replaceRunningTurn?: boolean) => void;
+  readonly readRunningTurnId: () => string | null;
+  readonly interrupt: () => void | Promise<void>;
 }
 
 export interface VoiceModePersistence {
@@ -121,6 +123,7 @@ export class VoiceModeController {
   private abort: AbortController | null = null;
   private queue: { audio: Float32Array; playbackText: string | null }[] = [];
   private targets: ComposerTarget[] = [];
+  private readonly interruptedTurns = new Map<string, string>();
   private segmentPlaybackText: string | null = null;
 
   constructor(private readonly dependencies: VoiceModeDependencies) {
@@ -305,6 +308,18 @@ export class VoiceModeController {
       this.setState({ ...this.current, notice: STALE_DRAFT_NOTICE });
       return;
     }
+    const turnId = target.readRunningTurnId();
+    const hasMessage =
+      phrase.text.trim() !== "" || (phrase.command === "send" && draft.trim() !== "");
+    if (hasMessage && turnId !== null && this.interruptedTurns.get(target.key) !== turnId) {
+      this.interruptedTurns.set(target.key, turnId);
+      await target.interrupt();
+      if (run !== this.runId) return;
+      if (this.target !== target || target.readDraft() !== draft) {
+        this.setState({ ...this.current, notice: STALE_DRAFT_NOTICE });
+        return;
+      }
+    }
     let finalText = draft;
     if (result.kind === "commit") {
       if (!target.commitDraft(result.text)) {
@@ -314,7 +329,8 @@ export class VoiceModeController {
       finalText = result.text;
     }
     this.setState({ ...this.current, notice: null });
-    if (phrase.command === "send" && finalText.trim() !== "") target.submit();
+    if (phrase.command === "send" && finalText.trim() !== "")
+      target.submit(turnId !== null && this.interruptedTurns.get(target.key) === turnId);
     else if (phrase.command === "clear") target.commitDraft("");
   }
 

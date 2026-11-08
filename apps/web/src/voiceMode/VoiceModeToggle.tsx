@@ -28,18 +28,32 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
   ownerKey: string;
   readPrompt: () => string;
   commitPrompt: (text: string) => boolean;
-  submit: () => void;
+  submit: (replaceRunningTurn?: boolean) => void;
+  runningTurnId: string | null;
+  interrupt: () => void | Promise<void>;
 }) {
   const controller = getVoiceModeController();
   const readDraft = useStableCallback(() => props.readPrompt());
   const commitDraft = useStableCallback((text: string) => props.commitPrompt(text));
-  const submit = useStableCallback(() => props.submit());
+  const submit = useStableCallback((replaceRunningTurn?: boolean) =>
+    props.submit(replaceRunningTurn),
+  );
+  const readRunningTurnId = useStableCallback(() => props.runningTurnId);
+  const interrupt = useStableCallback(() => props.interrupt());
   const state = useSyncExternalStore(controller.subscribe, () => controller.state);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Registers this composer as the place speech goes while it is showing; the controller outlives it, so unmounting must unregister.
   useEffect(
-    () => controller.registerTarget({ key: props.ownerKey, readDraft, commitDraft, submit }),
-    [controller, props.ownerKey, readDraft, commitDraft, submit],
+    () =>
+      controller.registerTarget({
+        key: props.ownerKey,
+        readDraft,
+        commitDraft,
+        submit,
+        readRunningTurnId,
+        interrupt,
+      }),
+    [controller, props.ownerKey, readDraft, commitDraft, submit, readRunningTurnId, interrupt],
   );
 
   const Icon =
