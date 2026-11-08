@@ -1,3 +1,5 @@
+import { VoiceGhostText } from "../voiceMode/voiceGhostText";
+import { useVoiceGhostText } from "../voiceMode/useVoiceGhostText";
 import { documentChipKindForFileName } from "~/pierre-icons";
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
@@ -1105,7 +1107,7 @@ function ComposerPromptEditorTiptapInner(
 
   const editor = useEditor(
     {
-      extensions: richText ? RICH_TEXT_EXTENSIONS : PLAIN_TEXT_EXTENSIONS,
+      extensions: [...(richText ? RICH_TEXT_EXTENSIONS : PLAIN_TEXT_EXTENSIONS), VoiceGhostText],
       content: buildDocJson(value, (name) => composerSkillMeta(skills, name), {
         styling: richText,
         literalText,
@@ -1449,6 +1451,8 @@ function ComposerPromptEditorTiptapInner(
     },
     [],
   );
+
+  useVoiceGhostText(editor, props.draftKey);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes the disabled prop into the imperative Tiptap editor via setEditable
   useEffect(() => {

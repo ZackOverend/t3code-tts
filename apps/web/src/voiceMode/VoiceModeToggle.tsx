@@ -73,11 +73,6 @@ export const VoiceModeToggle = memo(function VoiceModeToggle(props: {
 
   return (
     <>
-      {state.preview && state.previewOwner === props.ownerKey ? (
-        <span className="max-w-64 whitespace-pre-wrap break-words text-xs italic text-muted-foreground">
-          {state.preview}
-        </span>
-      ) : null}
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger
           openOnHover
